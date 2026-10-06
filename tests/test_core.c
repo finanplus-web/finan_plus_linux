@@ -997,6 +997,51 @@ static void test_report_formats(void) {
     g_free(x);
 }
 
+/* ------------------------------------------------------------------ correções da auditoria (06/10/2026), iguais ao Android 1.1.1 */
+
+static void test_audit_resume_recurring(void) {
+    g_autoptr(AppState) s = app_state_new();
+    Recurring *r = recurring_new("r", KIND_EXPENSE, "x", 1000, "Lazer", "main", "", 5, FALSE, D("2026-01-05"), day_ym(D("2026-03-01")));
+    g_ptr_array_add(s->recurring, r);
+    OpErr err = {0};
+    g_assert_true(ops_save_recurring(s, "r", KIND_EXPENSE, "x", "10,00", "5", "Lazer", "main", "", TRUE, DAY_NONE, D("2026-10-06"), &err));
+    g_assert_cmpuint(s->txs->len, ==, 1); /* só o mês atual, não os 7 meses parados */
+    g_assert_cmpint(((Tx *)s->txs->pdata[0])->date, ==, D("2026-10-05"));
+    g_assert_cmpint(((Recurring *)s->recurring->pdata[0])->last, ==, day_ym(D("2026-10-01")));
+    /* recorrência que já estava ativa continua recuperando os meses atrasados */
+    g_autoptr(AppState) s2 = app_state_new();
+    g_ptr_array_add(s2->recurring, recurring_new("r", KIND_EXPENSE, "x", 1000, "Lazer", "main", "", 5, TRUE, D("2026-01-05"), day_ym(D("2026-03-01"))));
+    g_assert_true(ops_save_recurring(s2, "r", KIND_EXPENSE, "x", "10,00", "5", "Lazer", "main", "", TRUE, DAY_NONE, D("2026-10-06"), &err));
+    g_assert_cmpuint(s2->txs->len, ==, 7);
+}
+
+static void test_audit_toggle_card_payment(void) {
+    g_autoptr(AppState) s = st(mk("p", KIND_EXPENSE, 30000, "2026-10-12", TRUE, NULL, "c", NULL, CARD_PAYMENT_CAT),
+                               mk("b", KIND_EXPENSE, 5000, "2026-10-01", TRUE, "c", NULL, NULL, NULL),
+                               mk("l", KIND_EXPENSE, 2000, "2026-10-10", FALSE, NULL, NULL, NULL, NULL), NULL);
+    g_assert_false(ops_can_toggle_paid(s->txs->pdata[0]));
+    g_assert_false(ops_can_toggle_paid(s->txs->pdata[1]));
+    g_assert_true(ops_can_toggle_paid(s->txs->pdata[2]));
+    ops_toggle_paid(s, "p");
+    ops_toggle_paid(s, "l");
+    g_assert_true(((Tx *)s->txs->pdata[0])->paid);
+    g_assert_true(((Tx *)s->txs->pdata[2])->paid);
+}
+
+static void test_audit_backup_value_limits(void) {
+    g_autoptr(AppState) s = backup_parse(
+        "{\"accounts\":[{\"id\":\"main\",\"name\":\"C\",\"initial\":-1e300}],\"txs\":["
+        "{\"id\":\"a\",\"kind\":\"income\",\"value\":1e300,\"date\":\"2026-10-01\",\"desc\":\"x\",\"category\":\"Salário\",\"paid\":true},"
+        "{\"id\":\"b\",\"kind\":\"expense\",\"value\":true,\"date\":\"2026-10-01\",\"desc\":\"y\",\"category\":\"Lazer\",\"paid\":true},"
+        "{\"id\":\"c\",\"kind\":\"expense\",\"value\":9999999999999.99,\"date\":\"2026-10-01\",\"desc\":\"z\",\"category\":\"Lazer\",\"paid\":true}]}",
+        -1, NULL, NULL);
+    g_assert_nonnull(s);
+    g_assert_cmpint(((Account *)s->accounts->pdata[0])->initial, ==, 0);
+    g_assert_cmpuint(s->txs->len, ==, 1); /* valor inválido descarta o lançamento; o limite exato ainda vale */
+    g_assert_cmpstr(((Tx *)s->txs->pdata[0])->id, ==, "c");
+    g_assert_cmpint(((Tx *)s->txs->pdata[0])->value, ==, 999999999999999LL);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     /* JSON e dinheiro (4) */
@@ -1065,5 +1110,9 @@ int main(int argc, char **argv) {
     g_test_add_func("/report/months-top-list", test_report_months_top_list);
     g_test_add_func("/report/multi-month-presets", test_report_multi_month_presets);
     g_test_add_func("/report/formats", test_report_formats);
+    /* correções da auditoria (3) */
+    g_test_add_func("/audit/resume-recurring", test_audit_resume_recurring);
+    g_test_add_func("/audit/toggle-card-payment", test_audit_toggle_card_payment);
+    g_test_add_func("/audit/backup-value-limits", test_audit_backup_value_limits);
     return g_test_run();
 }

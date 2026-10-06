@@ -21,7 +21,7 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 Baixe o `.deb` da [página de versões](https://github.com/finanplus-web/finan_plus_linux/releases/latest) e instale:
 
 ```sh
-sudo apt install ./finan-plus_1.1.6_amd64.deb
+sudo apt install ./finan-plus_1.1.7_amd64.deb
 ```
 
 Depois é só abrir **Finan+** no menu de aplicativos, ou rodar `finan-plus`.
@@ -60,11 +60,11 @@ sudo apt install build-essential meson ninja-build pkg-config \
      libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev
 meson setup build
 ninja -C build
-meson test -C build          # 66 testes (os 60 do app Android + armazenamento/PIN + PDF)
+meson test -C build          # 69 testes (núcleo igual ao do app Android, armazenamento/PIN e PDF)
 ./build/finan-plus
 ```
 
-Gerar o `.deb`: `packaging/build-deb.sh`, que cria `finan-plus_1.1.6_amd64.deb`.
+Gerar o `.deb`: `packaging/build-deb.sh`, que cria `finan-plus_1.1.7_amd64.deb`.
 
 Compilar com verificação de memória: `meson setup build-asan -Db_sanitize=address,undefined`.
 

@@ -81,10 +81,11 @@ GtkWidget *tx_row_new(const Tx *t) {
     gtk_widget_set_size_request(vl, wide ? 140 : 110, -1);
     gtk_label_set_ellipsize(GTK_LABEL(vl), PANGO_ELLIPSIZE_NONE);
     w_add(row, vl);
-    if (tx_is_card(t)) {
-        GtkWidget *ic = w_icon("credit-card", 20);
+    if (!ops_can_toggle_paid(t)) {
+        /* compra no cartão ou pagamento de fatura: não alterna pago/pendente */
+        GtkWidget *ic = w_icon(tx_is_card(t) ? "credit-card" : "check", 20);
         gtk_widget_set_size_request(ic, 34, -1);
-        gtk_widget_set_tooltip_text(ic, "Compra no cartão: entra na fatura");
+        gtk_widget_set_tooltip_text(ic, tx_is_card(t) ? "Compra no cartão: entra na fatura" : "Pagamento de fatura");
         w_add(row, ic);
     } else {
         GtkWidget *chk = w_button(NULL, t->paid ? "check" : NULL, t->paid ? "fin-check on" : "fin-check", toggle_paid, g_strdup(t->id), g_free);

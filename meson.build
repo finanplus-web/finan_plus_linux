@@ -1,7 +1,7 @@
 # Finan+ — Copyright (C) 2026 Juscelino Be
 # SPDX-License-Identifier: GPL-3.0-or-later
 project('finan-plus', 'c',
-  version: '1.1.6',
+  version: '1.1.7',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 0.63',
   default_options: ['c_std=gnu11', 'warning_level=2', 'buildtype=release', 'b_ndebug=if-release'])

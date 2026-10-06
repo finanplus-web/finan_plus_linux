@@ -53,9 +53,14 @@ static gboolean jnum(JsonNode *n, double *out) {
     return FALSE;
 }
 
+/* Maior valor aceito: 13 dígitos de reais, o mesmo limite da digitação (somas maiores estouravam e trocavam de sinal). */
+#define MAX_ABS_REAIS 9999999999999.99
+
+/* Dinheiro do backup: número ou texto numérico; booleano não vale (true virava R$ 1,00) e valor acima do limite vira 0. */
 static Cents jcents(JsonNode *n) {
     double d;
-    return jnum(n, &d) ? money_from_reais(d) : 0;
+    if (is_value(n, G_TYPE_BOOLEAN)) return 0;
+    return jnum(n, &d) && fabs(d) <= MAX_ABS_REAIS ? money_from_reais(d) : 0;
 }
 
 static int jint_in(JsonNode *n, int a, int b, int def) {

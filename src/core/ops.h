@@ -34,6 +34,8 @@ gboolean ops_save_tx(AppState *s, const char *edit_id, const TxDraft *d, OpErr *
 int ops_later_parcels(const AppState *s, const char *id);
 void ops_delete_tx(AppState *s, const char *id, gboolean with_later);
 void ops_toggle_paid(AppState *s, const char *id);
+gboolean ops_can_toggle_paid(const Tx *t);
+Ym ops_resumed_last(Ym last, Day today);
 
 gboolean ops_save_goal(AppState *s, const char *id, const char *name, const char *target, const char *move,
                        Day deadline, const char *monthly, OpErr *err);

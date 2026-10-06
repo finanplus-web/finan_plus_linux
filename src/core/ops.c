@@ -127,9 +127,13 @@ void ops_delete_tx(AppState *s, const char *id, gboolean with_later) {
     }
 }
 
+/* Compra no cartão e pagamento de fatura não alternam pago/pendente: desmarcar um pagamento de fatura reabria
+ * a fatura e deixava o pagamento pendente, descontando o mesmo valor duas vezes (igual ao Android 1.1.1). */
+gboolean ops_can_toggle_paid(const Tx *t) { return t && !tx_is_card(t) && tx_is_flow(t); }
+
 void ops_toggle_paid(AppState *s, const char *id) {
     Tx *t = app_tx(s, id);
-    if (t && !tx_is_card(t)) t->paid = !t->paid;
+    if (ops_can_toggle_paid(t)) t->paid = !t->paid;
 }
 
 /* ------------------------------------------------------------------ metas */
@@ -264,6 +268,13 @@ gboolean ops_pay_invoice(AppState *s, const char *card_id, const char *value, co
 
 /* ------------------------------------------------------------------ recorrências */
 
+/* Ao reativar uma recorrência pausada, os meses parados não geram lançamento: retoma a partir do mês atual.
+ * (Antes, reativar em outubro uma recorrência pausada em março criava 7 lançamentos pendentes de uma vez.) */
+Ym ops_resumed_last(Ym last, Day today) {
+    Ym prev = day_ym(today) - 1;
+    return last != YM_NONE && last > prev ? last : prev;
+}
+
 gboolean ops_save_recurring(AppState *s, const char *id, Kind kind, const char *desc, const char *value, const char *day,
                             const char *category, const char *account_id, const char *card_id, gboolean active,
                             Day start, Day today, OpErr *err) {
@@ -292,6 +303,7 @@ gboolean ops_save_recurring(AppState *s, const char *id, Kind kind, const char *
             tx_set_str(&r->category, cat);
             tx_set_str(&r->account_id, acc);
             tx_set_str(&r->card_id, card);
+            if (!r->active && active) r->last = ops_resumed_last(r->last, today);
             r->active = active;
         }
     }

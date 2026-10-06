@@ -1,5 +1,14 @@
 # Changelog — Finan+ para Linux
 
+## 1.1.7 — correções da auditoria do app Android (06/10/2026)
+
+A auditoria do Finan+ Android encontrou três erros nas regras financeiras que as três versões compartilham. Esta versão aplica as mesmas correções do Android 1.1.1 e do Finan+ web 1.1.2.
+
+- **Recorrência reativada:** ao reativar uma recorrência pausada (Ajustes › Recorrências), os meses em que ela ficou parada não geram mais lançamentos de uma vez. Ela retoma a partir do mês atual (`ops_resumed_last`). Uma recorrência que já estava ativa continua recuperando os meses atrasados.
+- **Pagamento de fatura:** em Lançamentos, o pagamento de fatura mostrava o botão de pago/pendente, e desmarcá-lo descontava o mesmo valor duas vezes (fatura reaberta + pagamento pendente). Agora ele aparece com um ícone fixo, e o núcleo recusa a troca (`ops_can_toggle_paid`), como já acontecia com as compras no cartão.
+- **Backup com valores gigantes ou booleanos:** valores acima de R$ 9.999.999.999.999,99 (o limite da digitação) e `true`/`false` em campos de dinheiro são recusados; antes, somas estouravam e o saldo podia trocar de sinal.
+- 3 testes novos: 69 no total.
+
 ## 1.1.6 — cantos das listas arredondadas (05/10/2026)
 
 - Com tema próprio do sistema (ex.: Blackline no KDE), as listas arredondadas — como "O que há de novo" e "Detalhes" na janela Sobre, e as dos editores — mostravam um quadrado claro atrás dos cantos: o tema pintava o fundo da lista sem arredondar. O tema do Finan+ agora define fundo, cantos e contorno dessas listas (`list.boxed-list` em `build_widgets()`, `src/ui/theme.c`).
