@@ -14,7 +14,11 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 - Como o assistente decide cada coisa: [ASSISTENTE.md](ASSISTENTE.md)
 - O que foi feito nesta versão: [CHANGELOG.md](CHANGELOG.md)
 
+**Baixar:** [última versão (.deb)](https://github.com/finanplus-web/finan_plus_linux/releases/latest) · **Finan+ web (PWA):** [usar no navegador](https://finanplus-web.github.io/finan_plus/) ([código-fonte](https://github.com/finanplus-web/finan_plus))
+
 ## Instalar (.deb)
+
+Baixe o `.deb` da [página de versões](https://github.com/finanplus-web/finan_plus_linux/releases/latest) e instale:
 
 ```sh
 sudo apt install ./finan-plus_1.1.6_amd64.deb
