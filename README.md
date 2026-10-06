@@ -14,7 +14,7 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 - Como o assistente decide cada coisa: [ASSISTENTE.md](ASSISTENTE.md)
 - O que foi feito nesta versão: [CHANGELOG.md](CHANGELOG.md)
 
-**Baixar:** [última versão (.deb)](https://github.com/finanplus-web/finan_plus_linux/releases/latest) · **Finan+ web (PWA):** [usar no navegador](https://finanplus-web.github.io/finan_plus/) ([código-fonte](https://github.com/finanplus-web/finan_plus))
+**Baixar:** [última versão (.deb e AppImage)](https://github.com/finanplus-web/finan_plus_linux/releases/latest) · **Finan+ web (PWA):** [usar no navegador](https://finanplus-web.github.io/finan_plus/) ([código-fonte](https://github.com/finanplus-web/finan_plus))
 
 ## Instalar (.deb)
 
@@ -30,6 +30,18 @@ Precisa de GTK 4.12+ e libadwaita 1.5+: Ubuntu 24.04 ou mais novo, Linux Mint 22
 
 Para remover: `sudo apt remove finan-plus`. Os seus dados continuam em `~/.local/share/finan-plus/` até você apagá-los (Ajustes › Dados › Apagar tudo).
 
+## AppImage (portátil / outras distribuições)
+
+Para rodar em qualquer distribuição com ambiente moderno (Fedora, Arch Linux, Manjaro, openSUSE...) ou sem instalar no sistema:
+
+1. Baixe o `.AppImage` da [página de versões](https://github.com/finanplus-web/finan_plus_linux/releases/latest).
+2. Torne o arquivo executável e abra:
+
+```sh
+chmod +x finan-plus_1.1.7_x86_64.AppImage
+./finan-plus_1.1.7_x86_64.AppImage
+```
+
 ## Seus dados
 
 | O quê | Onde |
@@ -43,7 +55,7 @@ O backup JSON (Ajustes › Dados) é o mesmo formato do Finan+ web e do app Andr
 
 ## Publicar uma versão no GitHub
 
-O arquivo `.github/workflows/release.yml` compila, roda os testes e gera o `.deb` a cada envio. Quando chega na `main` uma versão do `meson.build` que ainda não tem Release, ele cria sozinho a tag `vX.Y.Z` e a Release com o `.deb` e as notas do `CHANGELOG.md`:
+O arquivo `.github/workflows/release.yml` compila, roda os testes e gera o `.deb` e o `.AppImage` a cada envio. Quando chega na `main` uma versão do `meson.build` que ainda não tem Release, ele cria sozinho a tag `vX.Y.Z` e a Release com os pacotes e as notas do `CHANGELOG.md`:
 
 ```sh
 # depois de atualizar a versão no meson.build, src/ui/app.h, CHANGELOG.md e metainfo
@@ -66,6 +78,8 @@ meson test -C build          # 69 testes (núcleo igual ao do app Android, armaz
 
 Gerar o `.deb`: `packaging/build-deb.sh`, que cria `finan-plus_1.1.7_amd64.deb`.
 
+Gerar o `.AppImage`: `packaging/build-appimage.sh`, que cria `finan-plus_1.1.7_x86_64.AppImage`.
+
 Compilar com verificação de memória: `meson setup build-asan -Db_sanitize=address,undefined`.
 
 Variáveis úteis para testar sem tocar nos seus dados: `FINAN_PLUS_DATA_DIR`, `FINAN_PLUS_CONFIG_DIR`, `FINAN_PLUS_NO_KEYRING=1` (ver `man finan-plus`).
@@ -80,7 +94,7 @@ src/main.c     ponto de entrada (finan-plus, finan-plus --avisos)
 data/          dicionário do assistente, ícones, .desktop, metainfo, manual
 tests/         testes (GLib): núcleo, armazenamento/PIN, PDF
 tools/         ferramentas de desenvolvimento (dados de demonstração, capturas de tela)
-packaging/     script do pacote .deb
+packaging/     scripts de empacotamento (.deb e .AppImage)
 ```
 
 Bibliotecas usadas (todas livres e já presentes em qualquer desktop GNOME):

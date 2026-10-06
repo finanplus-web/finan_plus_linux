@@ -29,7 +29,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential meson ninja-build pkg-config \
-            libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev dpkg-dev
+            libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev dpkg-dev curl
 
       - name: Versão e decisão de publicar
         id: ver
@@ -60,13 +60,22 @@ jobs:
           name: finan-plus-deb
           path: finan-plus_*_amd64.deb
 
+      - name: Gerar o AppImage
+        run: packaging/build-appimage.sh
+
+      - name: Guardar o AppImage (artefato da execução)
+        uses: actions/upload-artifact@v4
+        with:
+          name: finan-plus-appimage
+          path: finan-plus_*_*.AppImage
+
       - name: Notas da versão
         if: steps.ver.outputs.publish == 'true'
         run: |
           V=${{ steps.ver.outputs.version }}
           # trecho do CHANGELOG.md entre "## <versão>" e o próximo "## "
           awk -v v="$V" '$0 ~ "^## "v" " {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notas.md
-          printf '\n---\n**Instalar:** baixe o `.deb` abaixo e rode `sudo apt install ./finan-plus_%s_amd64.deb`\n(Ubuntu 24.04+, Linux Mint 22, Debian 13, KDE neon, Pop!_OS 24.04).\n' "$V" >> notas.md
+          printf '\n---\n**Instalar (.deb):** baixe o `.deb` abaixo e rode `sudo apt install ./finan-plus_%s_amd64.deb`\n(Ubuntu 24.04+, Linux Mint 22, Debian 13, KDE neon, Pop!_OS 24.04).\n\n**AppImage (outras distribuições):** baixe o `.AppImage`, torne executável (`chmod +x finan-plus_%s_x86_64.AppImage`) e execute.\n' "$V" "$V" >> notas.md
           cat notas.md
 
       - name: Criar Release
@@ -75,11 +84,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           V: ${{ steps.ver.outputs.version }}
         run: |
-          # se a Release já existe (ex.: criada pelo site do GitHub), só anexa o .deb a ela;
+          # se a Release já existe (ex.: criada pelo site do GitHub), só anexa os pacotes a ela;
           # senão cria a tag vX.Y.Z neste commit e a Release
           if gh release view "v$V" >/dev/null 2>&1; then
-            gh release upload "v$V" finan-plus_*_amd64.deb --clobber
+            gh release upload "v$V" finan-plus_*_amd64.deb finan-plus_*_*.AppImage --clobber
           else
-            gh release create "v$V" finan-plus_*_amd64.deb --target "$GITHUB_SHA" \
+            gh release create "v$V" finan-plus_*_amd64.deb finan-plus_*_*.AppImage --target "$GITHUB_SHA" \
               --title "Finan+ para Linux $V" --notes-file notas.md
           fi
