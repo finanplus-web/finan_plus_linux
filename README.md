@@ -39,16 +39,15 @@ O backup JSON (Ajustes › Dados) é o mesmo formato do Finan+ web e do app Andr
 
 ## Publicar uma versão no GitHub
 
-O arquivo `.github/workflows/release.yml` compila e roda os testes a cada envio. Quando você envia uma tag de versão, ele também gera o `.deb` e cria a Release com o pacote e as notas do `CHANGELOG.md`:
+O arquivo `.github/workflows/release.yml` compila, roda os testes e gera o `.deb` a cada envio. Quando chega na `main` uma versão do `meson.build` que ainda não tem Release, ele cria sozinho a tag `vX.Y.Z` e a Release com o `.deb` e as notas do `CHANGELOG.md`:
 
 ```sh
 # depois de atualizar a versão no meson.build, src/ui/app.h, CHANGELOG.md e metainfo
 git commit -am "Finan+ para Linux 1.1.7"
-git tag v1.1.7
-git push && git push --tags
+git push
 ```
 
-A tag precisa bater com a versão do `meson.build` (ex.: `v1.1.6` ↔ `1.1.6`); se não bater, a publicação para com um aviso.
+Enviar a tag manualmente (`git tag v1.1.7 && git push --tags`) também funciona; nesse caso a tag precisa bater com a versão do `meson.build`.
 
 ## Compilar a partir do código
 

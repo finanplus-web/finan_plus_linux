@@ -1,9 +1,10 @@
 # Finan+ — Copyright (C) 2026 Juscelino Be
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
-# Compila e testa o Finan+ para Linux em cada envio (push/pull request).
-# Ao enviar uma tag de versão (ex.: v1.1.6), também gera o .deb e cria a Release no GitHub
-# com o pacote, o código-fonte e as notas da versão tiradas do CHANGELOG.md.
+# Compila e testa o Finan+ para Linux em cada envio (push/pull request) e gera o .deb.
+# Publicação automática: quando chega na main uma versão do meson.build que ainda não tem
+# Release (ex.: 1.1.7 → v1.1.7), o fluxo cria a tag e a Release com o .deb e as notas do
+# CHANGELOG.md. Enviar a tag vX.Y.Z manualmente também funciona.
 name: Compilar e publicar
 
 on:
@@ -30,13 +31,25 @@ jobs:
           sudo apt-get install -y --no-install-recommends build-essential meson ninja-build pkg-config \
             libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev dpkg-dev
 
-      - name: Conferir versão da tag
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Versão e decisão de publicar
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           V=$(sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)
-          if [ "v$V" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::A tag $GITHUB_REF_NAME não bate com a versão $V do meson.build"; exit 1
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          PUBLISH=false
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            if [ "v$V" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::A tag $GITHUB_REF_NAME não bate com a versão $V do meson.build"; exit 1
+            fi
+            PUBLISH=true
+          elif [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_NAME" = main ]; then
+            # versão nova na main (ainda sem Release) → publicar
+            gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || PUBLISH=true
           fi
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "Versão $V — publicar: $PUBLISH"
 
       - name: Compilar, testar e gerar o .deb
         run: packaging/build-deb.sh
@@ -48,23 +61,25 @@ jobs:
           path: finan-plus_*_amd64.deb
 
       - name: Notas da versão
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.ver.outputs.publish == 'true'
         run: |
-          V=${GITHUB_REF_NAME#v}
+          V=${{ steps.ver.outputs.version }}
           # trecho do CHANGELOG.md entre "## <versão>" e o próximo "## "
           awk -v v="$V" '$0 ~ "^## "v" " {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notas.md
           printf '\n---\n**Instalar:** baixe o `.deb` abaixo e rode `sudo apt install ./finan-plus_%s_amd64.deb`\n(Ubuntu 24.04+, Linux Mint 22, Debian 13, KDE neon, Pop!_OS 24.04).\n' "$V" >> notas.md
           cat notas.md
 
       - name: Criar Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.ver.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.ver.outputs.version }}
         run: |
-          # se a Release já foi criada pelo site do GitHub, só anexa o .deb a ela
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" finan-plus_*_amd64.deb --clobber
+          # se a Release já existe (ex.: criada pelo site do GitHub), só anexa o .deb a ela;
+          # senão cria a tag vX.Y.Z neste commit e a Release
+          if gh release view "v$V" >/dev/null 2>&1; then
+            gh release upload "v$V" finan-plus_*_amd64.deb --clobber
           else
-            gh release create "$GITHUB_REF_NAME" finan-plus_*_amd64.deb \
-              --title "Finan+ para Linux ${GITHUB_REF_NAME#v}" --notes-file notas.md
+            gh release create "v$V" finan-plus_*_amd64.deb --target "$GITHUB_SHA" \
+              --title "Finan+ para Linux $V" --notes-file notas.md
           fi
