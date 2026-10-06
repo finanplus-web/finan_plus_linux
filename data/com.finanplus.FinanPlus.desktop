@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Finan+
+GenericName=Controle financeiro
+Comment=Controle financeiro pessoal: simples, privado e offline
+Exec=finan-plus
+Icon=com.finanplus.FinanPlus
+Terminal=false
+Categories=Office;Finance;GTK;
+Keywords=finanças;dinheiro;orçamento;despesas;receitas;gastos;cartão;metas;finance;budget;money;
+StartupNotify=true
+DBusActivatable=false
+X-GNOME-UsesNotifications=true

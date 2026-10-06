@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Finan+ — Copyright (C) 2026 Juscelino Be -->
+<component type="desktop-application">
+  <id>com.finanplus.FinanPlus</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Finan+</name>
+  <summary>Controle financeiro pessoal: simples, privado e offline</summary>
+  <developer id="com.finanplus"><name>Juscelino Be</name></developer>
+  <description>
+    <p>Organize receitas, despesas, contas, cartões de crédito, categorias, limites mensais, metas e lançamentos recorrentes.
+       Seus dados ficam só no seu computador, criptografados, sem conta, cadastro ou servidor.</p>
+    <ul>
+      <li>Saldo atual e previsto, faturas de cartão e próximos vencimentos</li>
+      <li>Relatórios por categoria e por mês, e relatório completo em PDF</li>
+      <li>Assistente no computador: sugere categorias, resume o mês, dá dicas e responde perguntas — sem internet</li>
+      <li>Bloqueio por PIN, ocultar valores e avisos de vencimento</li>
+      <li>Backup JSON compatível com o Finan+ web e com o app Android</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">com.finanplus.FinanPlus.desktop</launchable>
+  <content_rating type="oars-1.1"/>
+  <requires><display_length compare="ge">360</display_length></requires>
+  <supports><control>keyboard</control><control>pointing</control><control>touch</control></supports>
+  <releases>
+    <release version="1.1.6" date="2026-10-05"><description><p>Listas arredondadas sem o quadrado claro atrás dos cantos quando o sistema usa tema próprio (ex.: KDE).</p></description></release>
+    <release version="1.1.5" date="2026-10-05"><description><p>Acabamento visual: aviso de lista vazia em Lançamentos, cores do tema aplicadas mesmo com tema próprio do sistema (ex.: KDE), ícones Material no lugar de símbolos de texto.</p></description></release>
+    <release version="1.1.4" date="2026-10-05"><description><p>Correção: o app fechava ao abrir Relatórios sem lançamentos nos últimos meses.</p></description></release>
+    <release version="1.1.3" date="2026-10-05"><description><p>A tela de bloqueio agora tem os botões de fechar, minimizar e maximizar.</p></description></release>
+    <release version="1.1.2" date="2026-10-05"><description><p>Correção: os temas não eram aplicados com o sistema em português.</p></description></release>
+    <release version="1.1.1" date="2026-10-05"><description><p>Correção: os temas não mudavam em alguns sistemas.</p></description></release>
+    <release version="1.1.0" date="2026-10-03"><description><p>Primeira versão para Linux (GTK 4 + libadwaita).</p></description></release>
+  </releases>
+</component>

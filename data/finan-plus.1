@@ -1,0 +1,33 @@
+.TH FINAN-PLUS 1 "outubro de 2026" "Finan+ 1.1.0" "Comandos do usuário"
+.SH NOME
+finan-plus \- controle financeiro pessoal, privado e offline
+.SH SINOPSE
+.B finan-plus
+[\fB\-\-avisos\fR] [\fB\-\-version\fR]
+.SH DESCRIÇÃO
+O Finan+ organiza receitas, despesas, contas, cartões, limites, metas e recorrências.
+Os dados ficam em \fI~/.local/share/finan-plus/dados.fin\fR, criptografados com XChaCha20-Poly1305;
+a chave fica no chaveiro do sistema (Secret Service). As configurações deste computador ficam em
+\fI~/.config/finan-plus/aparelho.ini\fR.
+.SH OPÇÕES
+.TP
+.B \-\-avisos
+Verifica contas a pagar, valores a receber e faturas dos próximos 2 dias, mostra uma notificação e sai.
+Usado pelo início automático da sessão (Ajustes › Avisos de vencimento).
+.TP
+.B \-\-version
+Mostra a versão.
+.SH VARIÁVEIS DE AMBIENTE
+.TP
+.B FINAN_PLUS_DATA_DIR
+Outra pasta para os dados (útil para testes).
+.TP
+.B FINAN_PLUS_CONFIG_DIR
+Outra pasta para as configurações deste computador.
+.TP
+.B FINAN_PLUS_NO_KEYRING
+Com valor 1, não usa o chaveiro do sistema (a chave fica em um arquivo 0600 na pasta dos dados).
+.SH LICENÇA
+GNU GPL versão 3 ou posterior. Ícones Material Symbols sob a Licença Apache 2.0.
+.SH AUTOR
+Juscelino Be.

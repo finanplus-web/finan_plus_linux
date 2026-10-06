@@ -1,0 +1,70 @@
+# Finan+ — Copyright (C) 2026 Juscelino Be
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Compila e testa o Finan+ para Linux em cada envio (push/pull request).
+# Ao enviar uma tag de versão (ex.: v1.1.6), também gera o .deb e cria a Release no GitHub
+# com o pacote, o código-fonte e as notas da versão tiradas do CHANGELOG.md.
+name: Compilar e publicar
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # necessário só para criar a Release
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04   # GTK 4.14 + libadwaita 1.5: o mínimo exigido pelo app
+    env:
+      FINAN_PLUS_NO_KEYRING: '1'   # testes sem chaveiro do sistema
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar dependências
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential meson ninja-build pkg-config \
+            libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev dpkg-dev
+
+      - name: Conferir versão da tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          V=$(sed -n "s/^  version: '\(.*\)',/\1/p" meson.build)
+          if [ "v$V" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::A tag $GITHUB_REF_NAME não bate com a versão $V do meson.build"; exit 1
+          fi
+
+      - name: Compilar, testar e gerar o .deb
+        run: packaging/build-deb.sh
+
+      - name: Guardar o .deb (artefato da execução)
+        uses: actions/upload-artifact@v4
+        with:
+          name: finan-plus-deb
+          path: finan-plus_*_amd64.deb
+
+      - name: Notas da versão
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          V=${GITHUB_REF_NAME#v}
+          # trecho do CHANGELOG.md entre "## <versão>" e o próximo "## "
+          awk -v v="$V" '$0 ~ "^## "v" " {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notas.md
+          printf '\n---\n**Instalar:** baixe o `.deb` abaixo e rode `sudo apt install ./finan-plus_%s_amd64.deb`\n(Ubuntu 24.04+, Linux Mint 22, Debian 13, KDE neon, Pop!_OS 24.04).\n' "$V" >> notas.md
+          cat notas.md
+
+      - name: Criar Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # se a Release já foi criada pelo site do GitHub, só anexa o .deb a ela
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" finan-plus_*_amd64.deb --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" finan-plus_*_amd64.deb \
+              --title "Finan+ para Linux ${GITHUB_REF_NAME#v}" --notes-file notas.md
+          fi
