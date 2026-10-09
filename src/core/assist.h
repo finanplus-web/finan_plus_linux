@@ -89,6 +89,11 @@ const char *insight_type_label(InsightType t);
 #define INS_SPIKE_RATIO 1.30
 #define INS_SPIKE_MIN_DIFF 5000
 #define INS_PACE_MIN_DAY 7
+/* ritmo: mínimo de despesas variáveis pagas no mês para projetar (mês inteiro / categoria com limite) e parte do
+ * gasto variável acima da qual uma despesa sozinha é "pontual" (conta uma vez, não é multiplicada pelos dias) */
+#define INS_PACE_MIN_COUNT 5
+#define INS_PACE_MIN_COUNT_CAT 3
+#define INS_ONE_OFF_SHARE 0.5
 #define INS_SUB_MIN_MONTHS 3
 #define INS_SUB_TOLERANCE 0.30
 #define INS_PRICE_UP_RATIO 1.05
@@ -127,8 +132,10 @@ typedef struct {
 } MonthlyExpense;
 GPtrArray *insights_recurring_expenses(const AppState *s, Day today);
 
-typedef struct { Cents committed, variable, projected; } Projection;
-Projection insights_project(GPtrArray *txs, Day today);
+typedef struct { Cents committed, variable, projected, one_off; int count; gboolean enough; } Projection;
+/* Projeção das despesas até o fim do mês: compromissos pelo valor + gasto pontual + resto do variável ÷ dias × dias do mês.
+ * enough = FALSE com menos de min_count despesas variáveis pagas (não há ritmo para projetar). */
+Projection insights_project(GPtrArray *txs, Day today, int min_count);
 
 /* ================================================================ perguntas (assist_ask.c) */
 typedef enum { INTENT_TOTAL, INTENT_MAX, INTENT_COUNT, INTENT_AVERAGE, INTENT_BALANCE } AskIntent;

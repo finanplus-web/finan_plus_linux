@@ -60,7 +60,7 @@ sudo apt install build-essential meson ninja-build pkg-config \
      libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev
 meson setup build
 ninja -C build
-meson test -C build          # 69 testes (núcleo igual ao do app Android, armazenamento/PIN e PDF)
+meson test -C build          # 70 testes (núcleo igual ao do app Android, armazenamento/PIN e PDF)
 ./build/finan-plus
 ```
 

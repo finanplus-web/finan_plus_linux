@@ -327,18 +327,35 @@ static void subscriptions_summary(GPtrArray *subs, Day today, MoneyFmt money, GP
     g_string_free(list, TRUE);
 }
 
-Projection insights_project(GPtrArray *txs, Day today) {
+Projection insights_project(GPtrArray *txs, Day today, int min_count) {
     Ym ym = day_ym(today);
     int day = day_dom(today), len = ym_len(ym);
-    Projection p = {0, 0, 0};
+    Projection p = {0, 0, 0, 0, 0, FALSE};
+    Cents biggest = 0;
     for (guint i = 0; i < txs->len; i++) {
         Tx *t = txs->pdata[i];
         if (day_ym(t->date) != ym) continue;
         if (is_fixed(t) || !t->paid) p.committed += t->value;
-        else if (day_dom(t->date) <= day) p.variable += t->value;
+        else if (day_dom(t->date) <= day) { p.variable += t->value; p.count++; if (t->value > biggest) biggest = t->value; }
     }
-    p.projected = p.committed + (Cents)floor((double)p.variable / day * len + 0.5);
+    /* uma despesa que sozinha passa de metade do gasto variável é pontual: conta uma vez */
+    if (p.variable > 0 && biggest > p.variable * INS_ONE_OFF_SHARE) p.one_off = biggest;
+    p.projected = p.committed + p.one_off + (Cents)floor((double)(p.variable - p.one_off) / day * len + 0.5);
+    p.enough = p.count >= min_count;
     return p;
+}
+
+/* texto do "Por quê?" com a conta da projeção (string nova; quem chama libera) */
+static char *projection_why(const Projection *p, int day, int len, MoneyFmt money, int min_count) {
+    POOL;
+    if (p->one_off > 0)
+        return g_strdup_printf("Conta: compromissos do mês (recorrências, parcelas e contas agendadas) %s + gasto pontual %s (conta uma vez) "
+                               "+ resto do gasto variável até hoje %s ÷ %d dias × %d dias. "
+                               "Só é calculada a partir do dia %d e com pelo menos %d despesas variáveis pagas no mês.",
+                               M(p->committed), M(p->one_off), M(p->variable - p->one_off), day, len, INS_PACE_MIN_DAY, min_count);
+    return g_strdup_printf("Conta: compromissos do mês (recorrências, parcelas e contas agendadas) %s + gasto variável até hoje %s ÷ %d dias × %d dias. "
+                           "Só é calculada a partir do dia %d e com pelo menos %d despesas variáveis pagas no mês.",
+                           M(p->committed), M(p->variable), day, len, INS_PACE_MIN_DAY, min_count);
 }
 
 static void limit_pace(const AppState *s, Day today, MoneyFmt money, GPtrArray *out) {
@@ -357,8 +374,8 @@ static void limit_pace(const AppState *s, Day today, MoneyFmt money, GPtrArray *
             if (day_ym(t->date) == ym) used += t->value;
         }
         if (used >= lim->value) continue; /* já ultrapassado: o Início já mostra */
-        Projection p = insights_project(l, today);
-        if (p.projected <= lim->value || p.projected - lim->value < 1000) continue;
+        Projection p = insights_project(l, today, INS_PACE_MIN_COUNT_CAT);
+        if (!p.enough || p.projected <= lim->value || p.projected - lim->value < 1000) continue;
         int left = len - day;
         Cents per_day = MAX(0, lim->value - used) / left;
         char ymb[8];
@@ -368,9 +385,7 @@ static void limit_pace(const AppState *s, Day today, MoneyFmt money, GPtrArray *
             g_strdup_printf("No ritmo atual, %s deve fechar %s em cerca de %s, acima do limite de %s. "
                             "Para ficar dentro, gaste até %s por dia nos %d dias restantes.",
                             lim->category, br_month(ym), M(p.projected), M(lim->value), M(per_day), left),
-            g_strdup_printf("Conta: compromissos do mês (recorrências, parcelas e contas agendadas) %s + gasto variável até hoje "
-                            "%s ÷ %d dias × %d dias. Já usado: %s de %s.",
-                            M(p.committed), M(p.variable), day, len, M(used), M(lim->value)),
+            g_strdup_printf("%s Já usado: %s de %s.", pooled(pool, projection_why(&p, day, len, money, INS_PACE_MIN_COUNT_CAT)), M(used), M(lim->value)),
             8, lim->category, ym_first(ym), today));
     }
 }
@@ -388,15 +403,14 @@ static void over_income(const AppState *s, Day today, MoneyFmt money, GPtrArray 
         if (is_expense(t)) g_ptr_array_add(exp, t);
     }
     if (income <= 0) return;
-    Projection p = insights_project(exp, today);
-    if (p.projected <= income) return;
+    Projection p = insights_project(exp, today, INS_PACE_MIN_COUNT);
+    if (!p.enough || p.projected <= income) return;
     char ymb[8];
     g_ptr_array_add(out, insight(
         g_strdup_printf("over:%s", ym_iso(ym, ymb)), INSIGHT_OVER_INCOME, g_strdup("Despesas podem passar das receitas"),
         g_strdup_printf("No ritmo atual, as despesas de %s chegam a cerca de %s, acima das receitas previstas para o mês (%s). "
                         "Diferença estimada: %s.", br_month(ym), M(p.projected), M(income), M(p.projected - income)),
-        g_strdup_printf("Conta: compromissos do mês %s + gasto variável até hoje %s ÷ %d dias × %d dias. "
-                        "Receitas previstas = recebidas + a receber neste mês.", M(p.committed), M(p.variable), day, len),
+        g_strdup_printf("%s Receitas previstas = recebidas + a receber neste mês.", pooled(pool, projection_why(&p, day, len, money, INS_PACE_MIN_COUNT))),
         8, NULL, ym_first(ym), today));
 }
 

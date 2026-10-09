@@ -18,7 +18,7 @@ G_BEGIN_DECLS
 
 #define APP_ID "com.finanplus.FinanPlus"
 #ifndef APP_VERSION
-#define APP_VERSION "1.1.7"
+#define APP_VERSION "1.1.8"
 #endif
 
 typedef enum { PAGE_HOME, PAGE_MOVES, PAGE_REPORTS, PAGE_ASSIST, PAGE_SETTINGS, PAGE_COUNT } PageId;
