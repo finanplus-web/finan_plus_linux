@@ -1,5 +1,16 @@
 # Changelog — Finan+ para Linux
 
+## 1.1.8 — correção das dicas de ritmo do assistente (08/10/2026)
+
+**Problema (relatado pelo autor no Finan+ web, mesma regra aqui):** no dia 8, com R$ 500 de receita e uma única despesa de R$ 200, o assistente avisava "Despesas podem passar das receitas" com R$ 775 previstos. A conta multiplicava aquela compra pelos dias do mês (R$ 200 ÷ 8 × 31), como se ela se repetisse todo dia. O mesmo valia para "Ritmo do limite".
+
+**Regra nova** (`insights_project` em `src/core/assist_insights.c`; detalhes em [ASSISTENTE.md](ASSISTENTE.md)), a mesma do app Android 1.3.0 e do Finan+ web 1.2.1:
+- **Mínimo de dados:** a projeção só é feita com pelo menos **5 despesas variáveis pagas no mês** ("Ritmo do mês") ou **3 na categoria** ("Ritmo do limite"). Com menos, a dica não aparece.
+- **Gasto pontual:** uma despesa que sozinha passa de **metade** do gasto variável conta uma vez, sem ser multiplicada pelos dias.
+- O "Por quê?" mostra o gasto pontual separado e explica o mínimo de despesas.
+
+Testes: os dois testes antigos de ritmo usavam uma ou duas despesas (o padrão do problema) e passaram a usar dados suficientes; um teste novo cobre o caso relatado e o gasto pontual. 70 no total.
+
 ## 1.1.7 — correções da auditoria do app Android (06/10/2026)
 
 A auditoria do Finan+ Android encontrou três erros nas regras financeiras que as três versões compartilham. Esta versão aplica as mesmas correções do Android 1.1.1 e do Finan+ web 1.1.2.

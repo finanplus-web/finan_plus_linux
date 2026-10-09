@@ -61,8 +61,10 @@ Aparecem só quando há algo fora do padrão. As duas mais importantes ficam no 
 |---|---|---|
 | **Possível duplicado** | Mesma descrição + mesmo valor + mesma data, nos últimos 60 dias, sem ser parcela nem recorrência. | `INS_DUP_DAYS = 60` |
 | **Aumento de preço** | Gasto mensal (ver "Gastos fixos") cujo último valor ficou ≥ 5% e ≥ R$ 1,00 acima do mês anterior. | `INS_PRICE_UP_RATIO = 1.05` |
-| **Ritmo do limite** | Do dia 7 em diante, para categorias com limite ainda não ultrapassado: **projeção = compromissos do mês + gasto variável ÷ dias passados × dias do mês**. Compromissos são recorrências, parcelas e contas agendadas, e não são extrapolados. Avisa se a projeção passar do limite por ≥ R$ 10 e mostra quanto dá para gastar por dia no resto do mês. | `INS_PACE_MIN_DAY = 7` |
-| **Ritmo do mês** | A mesma projeção para todas as despesas, comparada com as receitas previstas do mês (recebidas + a receber). | — |
+| **Ritmo do limite** | Do dia 7 em diante, para categorias com limite ainda não ultrapassado: **projeção = compromissos do mês + gasto variável ÷ dias passados × dias do mês**. Compromissos são recorrências, parcelas e contas agendadas, e não são extrapolados. Avisa se a projeção passar do limite por ≥ R$ 10 e mostra quanto dá para gastar por dia no resto do mês. **Só com pelo menos 3 despesas variáveis pagas no mês na categoria**; uma despesa que sozinha passa de metade do gasto variável é **pontual** e conta uma vez, sem ser multiplicada pelos dias. | `INS_PACE_MIN_DAY = 7`, `INS_PACE_MIN_COUNT_CAT = 3`, `INS_ONE_OFF_SHARE = 0.5` |
+| **Ritmo do mês** | A mesma projeção para todas as despesas, **com pelo menos 5 despesas variáveis pagas no mês**, comparada com as receitas previstas do mês (recebidas + a receber). | `INS_PACE_MIN_COUNT = 5` |
+
+> **Por que o mínimo e o gasto pontual (desde a 1.1.8):** antes, uma única compra no começo do mês era multiplicada pelos dias. Exemplo real: no dia 8, R$ 200 gastos de uma vez viravam R$ 25 por dia, R$ 775 no mês, e o aviso "Despesas podem passar das receitas" aparecia com R$ 500 de receita. Com poucas despesas não existe "ritmo" para projetar, e uma compra grande isolada não se repete todo dia. A regra é a mesma no app Android, no Finan+ web e no Linux.
 | **Acima da média** | Gasto realizado da categoria neste mês ≥ 30% acima da média dos 3 meses anteriores **e** ≥ R$ 50 a mais. Precisa de dados em pelo menos 2 desses meses. Mostra os 2 maiores lançamentos. | `INS_SPIKE_RATIO = 1.30`, `INS_SPIKE_MIN_DIFF = R$ 50` |
 | **Pequenos gastos** | Mais de 10 despesas de até R$ 20 no mês: total, percentual das despesas e as descrições mais frequentes. | `INS_SMALL_VALUE = R$ 20`, `INS_SMALL_MIN_COUNT = 10` |
 | **Gastos fixos** | Mesma descrição, **uma vez por mês**, em ≥ 3 meses seguidos (até este mês ou o anterior), com valores a até 30% da mediana. Parcelas não entram. Mostra o total por mês e por ano. | `INS_SUB_MIN_MONTHS = 3`, `INS_SUB_TOLERANCE = 0.30` |
@@ -99,7 +101,7 @@ Exemplos: "quanto gastei com mercado em agosto?", "maior gasto da semana", "quan
 
 - As perguntas não entendem frases muito livres ("estou gastando muito?"). Quando não entende algo, a linha "Como entendi" mostra exatamente o que foi considerado.
 - O aprendizado começa a sugerir depois de alguns lançamentos (pelo menos 5). Antes disso, valem a "mesma descrição" e o dicionário.
-- A projeção do mês supõe que o gasto variável continua no ritmo dos dias anteriores. É uma estimativa, e o "Por quê?" mostra a conta.
+- A projeção do mês supõe que o gasto variável continua no ritmo dos dias anteriores. É uma estimativa: só é feita com dados suficientes (veja acima), uma compra grande isolada conta uma vez, e o "Por quê?" mostra a conta.
 
 
 ## Diferenças em relação ao app Android

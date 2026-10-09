@@ -747,7 +747,9 @@ static void test_ins_category_spike(void) {
 }
 
 static void test_ins_limit_pace(void) {
-    g_autoptr(AppState) s = st(EX("Restaurante", "Alimentação", 30000, "2026-10-08"), EX("Mercado", "Alimentação", 30000, "2026-10-12"),
+    /* dia 15 de 31: 3 despesas variáveis (600) + compromisso fixo (100, recorrência, não é extrapolado) */
+    g_autoptr(AppState) s = st(EX("Feira", "Alimentação", 20000, "2026-10-03"), EX("Restaurante", "Alimentação", 20000, "2026-10-08"),
+                               EX("Mercado", "Alimentação", 20000, "2026-10-12"),
                                ex_full("Assinatura comida", "Alimentação", 10000, "2026-10-01", TRUE, "r1", NULL), NULL);
     g_ptr_array_add(s->limits, limit_new("Alimentação", 100000));
     g_autoptr(GPtrArray) tips = insights_tips(s, TODAY, money_fmt);
@@ -759,14 +761,47 @@ static void test_ins_limit_pace(void) {
     g_autoptr(GPtrArray) early = insights_tips(s, D("2026-10-05"), money_fmt);
     g_autoptr(GPtrArray) l2 = tips_of(early, INSIGHT_LIMIT_PACE);
     g_assert_cmpuint(l2->len, ==, 0); /* antes do dia 7 não projeta */
+    /* só 2 despesas variáveis na categoria: não há ritmo para projetar */
+    g_autoptr(AppState) s2 = st(EX("Restaurante", "Alimentação", 30000, "2026-10-08"), EX("Mercado", "Alimentação", 30000, "2026-10-12"), NULL);
+    g_ptr_array_add(s2->limits, limit_new("Alimentação", 100000));
+    g_autoptr(GPtrArray) tips3 = insights_tips(s2, TODAY, money_fmt);
+    g_autoptr(GPtrArray) l3 = tips_of(tips3, INSIGHT_LIMIT_PACE);
+    g_assert_cmpuint(l3->len, ==, 0);
 }
 
 static void test_ins_over_income(void) {
-    g_autoptr(AppState) s = st(INC("Salário", "Salário", 100000, "2026-10-05"), EX("Gastos", "Outros", 80000, "2026-10-10"), NULL);
+    /* 5 despesas variáveis de R$ 160 até o dia 15: 800/15*31 = 1653,33 */
+    g_autoptr(AppState) s = st(INC("Salário", "Salário", 100000, "2026-10-05"), EX("Gasto 1", "Outros", 16000, "2026-10-01"),
+                               EX("Gasto 2", "Outros", 16000, "2026-10-03"), EX("Gasto 3", "Outros", 16000, "2026-10-06"),
+                               EX("Gasto 4", "Outros", 16000, "2026-10-09"), EX("Gasto 5", "Outros", 16000, "2026-10-10"), NULL);
     g_autoptr(GPtrArray) tips = insights_tips(s, TODAY, money_fmt);
     g_autoptr(GPtrArray) l = tips_of(tips, INSIGHT_OVER_INCOME);
     g_assert_cmpuint(l->len, ==, 1);
     g_assert_true(contains(((Insight *)l->pdata[0])->text, "R$ 1.653,33"));
+}
+
+static void test_ins_pace_few_and_one_off(void) {
+    /* o caso relatado: dia 8, R$ 500 de receita e uma despesa só de R$ 200 → antes projetava R$ 775 */
+    g_autoptr(AppState) caso = st(INC("Salário", "Salário", 50000, "2026-10-05"), EX("Mercado", "Alimentação", 20000, "2026-10-06"), NULL);
+    g_autoptr(GPtrArray) t1 = insights_tips(caso, D("2026-10-08"), money_fmt);
+    g_autoptr(GPtrArray) l1 = tips_of(t1, INSIGHT_OVER_INCOME);
+    g_assert_cmpuint(l1->len, ==, 0);
+    /* uma despesa grande isolada (R$ 600 de R$ 800) conta uma vez: 600 + 200/15*31 = 1013,33 */
+    g_autoptr(AppState) s = st(INC("Salário", "Salário", 100000, "2026-10-05"), EX("Notebook", "Outros", 60000, "2026-10-02"),
+                               EX("Café 1", "Alimentação", 5000, "2026-10-03"), EX("Café 2", "Alimentação", 5000, "2026-10-06"),
+                               EX("Café 3", "Alimentação", 5000, "2026-10-09"), EX("Café 4", "Alimentação", 5000, "2026-10-10"), NULL);
+    g_autoptr(GPtrArray) t2 = insights_tips(s, TODAY, money_fmt);
+    g_autoptr(GPtrArray) l2 = tips_of(t2, INSIGHT_OVER_INCOME);
+    g_assert_cmpuint(l2->len, ==, 1);
+    Insight *i = l2->pdata[0];
+    g_assert_true(contains(i->text, "R$ 1.013,33"));
+    g_assert_true(contains(i->why, "gasto pontual R$ 600,00 (conta uma vez)"));
+    g_autoptr(GPtrArray) exp = g_ptr_array_new();
+    for (guint k = 0; k < s->txs->len; k++) { Tx *t = s->txs->pdata[k]; if (t->kind == KIND_EXPENSE) g_ptr_array_add(exp, t); }
+    Projection p = insights_project(exp, TODAY, INS_PACE_MIN_COUNT);
+    g_assert_cmpint(p.one_off, ==, 60000);
+    g_assert_cmpint(p.count, ==, 5);
+    g_assert_true(p.enough);
 }
 
 static void test_ins_small_spends(void) {
@@ -1095,6 +1130,7 @@ int main(int argc, char **argv) {
     g_test_add_func("/assist/insights-category-spike", test_ins_category_spike);
     g_test_add_func("/assist/insights-limit-pace", test_ins_limit_pace);
     g_test_add_func("/assist/insights-over-income", test_ins_over_income);
+    g_test_add_func("/assist/insights-pace-few-and-one-off", test_ins_pace_few_and_one_off);
     g_test_add_func("/assist/insights-small-spends", test_ins_small_spends);
     g_test_add_func("/assist/insights-hidden-values", test_ins_hidden_values);
     g_test_add_func("/assist/ask-total-category-month", test_ask_total_category_month);
