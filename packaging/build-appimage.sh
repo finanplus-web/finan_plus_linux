@@ -48,32 +48,40 @@ cat > "$ROOT/AppRun" <<'EOT'
 set -e
 HERE="$(dirname "$(readlink -f "$0")")"
 export PATH="${HERE}/usr/bin:${PATH}"
-export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/usr/lib/x86_64-linux-gnu:${HERE}/usr/lib64:${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# sem ":" sobrando no fim: uma entrada vazia faria o sistema procurar bibliotecas na pasta atual
+export LD_LIBRARY_PATH="${HERE}/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 if [ -d "${HERE}/usr/share/glib-2.0/schemas" ]; then
-    export GSETTINGS_SCHEMA_DIR="${HERE}/usr/share/glib-2.0/schemas:${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
+    export GSETTINGS_SCHEMA_DIR="${HERE}/usr/share/glib-2.0/schemas${GSETTINGS_SCHEMA_DIR:+:$GSETTINGS_SCHEMA_DIR}"
 fi
 exec "${HERE}/usr/bin/finan-plus" "$@"
 EOT
 chmod 755 "$ROOT/AppRun"
 
-# Localiza ou baixa o appimagetool
-APPIMAGETOOL=""
-if command -v appimagetool >/dev/null 2>&1; then
+# Localiza ou baixa o appimagetool: versão fixa, conferida pelo SHA-256 (nada de "a mais recente" sem checagem)
+APPIMAGETOOL_VERSION=1.9.1
+case "$ARCH" in
+    x86_64) TOOL_SHA256=ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0 ;;
+    aarch64) TOOL_SHA256=f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158 ;;
+    *) TOOL_SHA256="" ;;
+esac
+APPIMAGETOOL="${APPIMAGETOOL:-}"
+if [ -z "$APPIMAGETOOL" ] && command -v appimagetool >/dev/null 2>&1; then
     APPIMAGETOOL="$(command -v appimagetool)"
-elif [ -x "/tmp/appimagetool-$ARCH" ]; then
-    APPIMAGETOOL="/tmp/appimagetool-$ARCH"
-elif [ -x "/tmp/appimagetool" ]; then
-    APPIMAGETOOL="/tmp/appimagetool"
-else
-    echo "Baixando appimagetool para $ARCH..."
-    TOOL_URL="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-${ARCH}.AppImage"
-    curl -sSfL "$TOOL_URL" -o "/tmp/appimagetool-$ARCH" || {
-        echo "Falha ao baixar $TOOL_URL" >&2
-        exit 1
-    }
-    chmod +x "/tmp/appimagetool-$ARCH"
-    APPIMAGETOOL="/tmp/appimagetool-$ARCH"
+fi
+if [ -z "$APPIMAGETOOL" ]; then
+    [ -n "$TOOL_SHA256" ] || { echo "Sem appimagetool conferido para $ARCH: instale-o ou defina APPIMAGETOOL=/caminho" >&2; exit 1; }
+    CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/finan-plus"
+    mkdir -p "$CACHE"
+    APPIMAGETOOL="$CACHE/appimagetool-${APPIMAGETOOL_VERSION}-${ARCH}.AppImage"
+    if ! echo "$TOOL_SHA256  $APPIMAGETOOL" | sha256sum -c - >/dev/null 2>&1; then
+        TOOL_URL="https://github.com/AppImage/appimagetool/releases/download/${APPIMAGETOOL_VERSION}/appimagetool-${ARCH}.AppImage"
+        echo "Baixando appimagetool ${APPIMAGETOOL_VERSION} para $ARCH..."
+        curl -sSfL "$TOOL_URL" -o "$APPIMAGETOOL.part" || { echo "Falha ao baixar $TOOL_URL" >&2; exit 1; }
+        echo "$TOOL_SHA256  $APPIMAGETOOL.part" | sha256sum -c - >/dev/null || { echo "appimagetool com SHA-256 diferente do esperado" >&2; rm -f "$APPIMAGETOOL.part"; exit 1; }
+        mv "$APPIMAGETOOL.part" "$APPIMAGETOOL"
+    fi
+    chmod +x "$APPIMAGETOOL"
 fi
 
 OUT="finan-plus_${VERSION}_${ARCH}.AppImage"
