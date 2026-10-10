@@ -18,7 +18,7 @@ G_BEGIN_DECLS
 
 #define APP_ID "com.finanplus.FinanPlus"
 #ifndef APP_VERSION
-#define APP_VERSION "1.1.8"
+#define APP_VERSION "1.2.0"
 #endif
 
 typedef enum { PAGE_HOME, PAGE_MOVES, PAGE_REPORTS, PAGE_ASSIST, PAGE_SETTINGS, PAGE_COUNT } PageId;
@@ -51,6 +51,10 @@ typedef struct {
     gint64 inactive_since; /* tempo monotônico em que a janela perdeu o foco; 0 = ativa */
 
     Filters filters;
+    /* Lançamentos: 0 = lista, 1 = calendário; mês e dia escolhidos no calendário */
+    int moves_view;
+    Ym cal_month;
+    Day cal_day;
     Layout layout;
     PageId page;
 

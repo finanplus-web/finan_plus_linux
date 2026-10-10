@@ -117,6 +117,9 @@ typedef struct {
     char *title;
     GPtrArray *lines; /* char* */
     char *why;
+    /* as até 2 frases mais úteis para o cartão do Início, por prioridade: contas em atraso, contas a pagar,
+     * quanto já gastou, quanto falta receber, quanto entrou (char*, cópias) */
+    GPtrArray *highlights;
 } MonthReport;
 void month_report_free(MonthReport *r);
 

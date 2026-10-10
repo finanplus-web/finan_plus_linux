@@ -25,6 +25,7 @@ void show_about(void) {
     adw_about_dialog_add_legal_section(a, "libsecret e json-glib", "© The GNOME Project", GTK_LICENSE_LGPL_2_1, NULL);
     adw_about_dialog_set_release_notes_version(a, APP_VERSION);
     adw_about_dialog_set_release_notes(a,
+        "<p>1.2.0: calendário em Lançamentos (saldo de cada dia, faturas no vencimento, atrasos; clique de novo num dia para lançar nessa data), Lista com ‹ mês › e lançamentos agrupados por dia, Início mais enxuto, Relatórios com comparação justa e o simulador \"E se…?\" (nada é gravado).</p>"
         "<p>1.1.8: o assistente não avisa mais que as despesas vão passar das receitas com base em uma ou duas compras (mínimo de 5 despesas no mês, 3 por categoria com limite; compra grande isolada conta uma vez).</p>"
         "<p>1.1.7: recorrência reativada retoma no mês atual; pagamento de fatura não pode ser desmarcado; backups com valores gigantes são recusados.</p>"
         "<p>1.1.6: listas arredondadas (como em Sobre) sem o quadrado claro atrás dos cantos quando o sistema usa tema próprio.</p>"

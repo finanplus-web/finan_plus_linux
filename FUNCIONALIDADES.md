@@ -36,21 +36,22 @@ Com um diálogo aberto, os atalhos globais esperam, para não abrir um editor po
 
 - Data completa do dia ("03 de Outubro de 2026"). Ela muda sozinha à meia-noite e quando a janela volta a ficar ativa.
 - Saldo atual (soma das contas) e saldo previsto para o fim do mês. O previsto inclui pendências e as faturas que vencem até lá.
-- Receitas e despesas realizadas no mês, uma barra de uso das receitas e o selo "% economizado".
-- Botões rápidos: Receita, Despesa, Meta.
+- Receitas e despesas realizadas no mês e, embaixo, o que ainda falta: "a receber" e "a pagar" (contas pendentes fora do cartão e faturas em aberto que vencem no mês). A barra de uso das receitas e o selo "% economizado" só aparecem depois que entra alguma receita.
+- Receita e Despesa ficam nos botões do topo da janela (Ctrl+N / Ctrl+Shift+N); o calendário também lança direto no dia.
 - **Vencimentos dos próximos 30 dias** (só na versão Linux; no Android esse papel é do widget): contas a pagar, valores a receber e faturas. Itens em atraso aparecem em vermelho, e um clique abre o lançamento ou o pagamento da fatura.
-- Cartão do assistente com o resumo do mês e as 2 dicas mais importantes.
-- Contas, com o saldo de cada uma, e cartões, com a fatura atual, o vencimento, o disponível e o botão "Pagar fatura".
-- Limites do mês, com barra que muda de cor: a partir de 80% ("Atenção") e acima do limite (vermelha).
-- Metas: quanto foi guardado, quanto falta guardar por mês até o prazo, o mês previsto de conclusão pelo plano e o aviso "após o prazo".
+- Assistente compacto: as 2 frases mais úteis do mês (contas em atraso, a pagar, quanto gastou, a receber, quanto entrou), a dica principal e um link só ("Abrir assistente" ou "Ver as N dicas"). O resumo completo e as perguntas ficam na tela do Assistente.
+- **Contas e cartões**, com o saldo de cada conta e, nos cartões, a fatura atual, o vencimento, o disponível e "Pagar fatura". Com uma conta só e nenhum cartão, ela ocupa a linha inteira.
+- **Limites do mês** e **Metas** só aparecem quando existe algum (com "＋ Novo" / "＋ Nova"). Limites: barra que muda de cor a partir de 80% e acima do limite. Metas: guardado, quanto guardar por mês até o prazo, mês previsto e "após o prazo".
+- **Comece por aqui**: enquanto não há limite ou meta, atalhos para "Definir um limite mensal" e "Criar uma meta"; cada linha some quando deixa de fazer sentido.
 
 ## Lançamentos
 
-- Período com campos De/Até (DD/MM/AAAA, ou pelo calendário) e os atalhos Este mês, 30 dias e Tudo.
-- Busca por descrição ou categoria sem diferenciar acento ("cafe" encontra "Café"). Filtros por tipo (receitas/despesas) e situação (realizados/pendentes).
-- Totais do período: receitas, despesas, saldo e a comparação receitas × despesas, com os pendentes à parte.
-- Lista com ícone da categoria, descrição, categoria · conta ou cartão, data, situação ("Em atraso" em vermelho), valor, e o botão de pago/recebido (compras no cartão mostram o ícone do cartão).
-- Clique (ou Enter) numa linha abre o editor. A lista mostra 300 itens por vez, com "Mostrar mais".
+- Chave **Lista | Calendário** no alto.
+- **Lista:** ‹ Outubro de 2026 › (as setas andam um mês inteiro). O botão de ajuste ao lado abre **Período e filtros**: datas livres De/Até, atalhos Este mês, 30 dias e Tudo, e a situação (inclusive "Realizados"); ele fica destacado com período livre ou "Realizados" ligado.
+- Busca por descrição ou categoria sem diferenciar acento ("cafe" encontra "Café") e filtros de um toque: Todos, Receitas, Despesas e Pendentes (Receitas/Despesas combinam com Pendentes).
+- Resumo do período: Receitas, Despesas e Saldo, com "a receber", "a pagar" e o saldo "previsto"; e a frase "As despesas são X% das receitas".
+- Lançamentos **agrupados por dia** ("Quinta, 15 de outubro"), com o saldo do dia (mesma regra do calendário). Cada linha: ícone da categoria, descrição, categoria · conta ou cartão, situação ("Em atraso" em vermelho), valor e o botão de pago/recebido. Clique (ou Enter) abre o editor; 300 itens por vez, com "Mostrar mais".
+- **Calendário:** o mês em grade com o saldo de cada dia, pontinhos de receita, despesa e cartão, faturas no vencimento e atrasos em destaque; totais do mês; lançamentos do dia escolhido, saldo previsto ao fim do dia e Receita/Despesa já com a data. Clique de novo no dia escolhido, segure ou use o botão direito para lançar nessa data (numa data futura começa pendente). Setas, arrastar para o lado e "Voltar para hoje". Detalhes em [CALENDARIO.md](CALENDARIO.md).
 
 ## Editor de lançamento
 
@@ -73,11 +74,18 @@ Com um diálogo aberto, os atalhos globais esperam, para não abrir um editor po
 
 ## Relatórios
 
-- Período: o mesmo da aba Lançamentos.
-- Despesas por categoria em **gráfico de rosca** (7 maiores + "Outras") e em barras, com o aviso de limite mensal ("Dentro do" / "⚠ Acima do").
-- Evolução dos últimos 6 meses (receitas × despesas), com descrição completa para leitores de tela.
-- Este mês × mês anterior.
-- Botão "Exportar relatório em PDF".
+- O mesmo ‹ mês › e período da aba Lançamentos; só valores realizados. Botão **PDF** no título.
+- Receitas e Despesas do período com **comparação justa**: mês atual contra os mesmos dias do mês anterior ("−11% vs. set (mesmos dias)"), outro mês contra o anterior inteiro, período livre contra o mesmo tamanho logo antes. Com "Ocultar valores": "Variação oculta".
+- Nada realizado no período: o que está a receber e a pagar e o link **Ver no calendário**.
+- Cartão **E se…?**: abre o simulador (abaixo).
+- Despesas por categoria em **gráfico de rosca** (7 maiores + "Outras") e em barras, com o aviso de limite mensal.
+- Evolução dos últimos 6 meses, com descrição para leitores de tela (texto no lugar do gráfico enquanto nenhum mês tem valores).
+
+## Simulador "E se…?" (detalhes em SIMULADOR.md)
+
+- Economizar por mês, quanto tempo para comprar algo, mudança na renda e antecipar uma dívida parcelada.
+- Base: média dos 3 meses completos anteriores (só realizados), ajustável. **Nada é gravado.**
+- "Transformar em meta" abre o formulário de meta já preenchido.
 
 ## Relatório em PDF
 

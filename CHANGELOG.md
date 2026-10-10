@@ -1,5 +1,28 @@
 # Changelog — Finan+ para Linux
 
+## 1.2.0 — calendário, telas enxutas e simulador "E se…?" (09/10/2026)
+
+A interface do Linux alcança o app Android 1.3.0 e o Finan+ web 1.3.0: as mesmas telas, as mesmas regras e os mesmos testes. Nenhum tema mudou: tudo usa a paleta do tema escolhido.
+
+- **Lançamentos › Calendário** (nova chave Lista | Calendário): o mês em grade com o saldo de cada dia, pontinhos de receita, despesa e cartão, faturas em aberto no vencimento e atrasos em destaque; totais do mês; o dia escolhido com seus lançamentos, o saldo previsto ao fim do dia e Receita/Despesa já com a data. Clicar de novo no dia, segurar ou usar o botão direito abre um lançamento novo nessa data (no futuro, começa pendente). Detalhes em [CALENDARIO.md](CALENDARIO.md).
+- **Lançamentos › Lista:** ‹ mês › com o botão **Período e filtros** (datas livres, atalhos e situação), busca, filtros de um toque (Todos, Receitas, Despesas, Pendentes), resumo com "a receber", "a pagar" e "previsto", e lançamentos **agrupados por dia** com o saldo do dia. Saiu o cartão "Receitas × despesas".
+- **Início:** Receitas e Despesas do mês com "a receber" e "a pagar"; barra de uso só com receita; sem os botões Receita/Despesa/Meta (ficam no topo da janela); assistente em 2 frases com a dica principal e um link; "Contas e cartões" com um título só; Limites e Metas só quando existem, e o cartão **Comece por aqui** antes disso.
+- **Relatórios:** mesmo ‹ mês › da aba Lançamentos, botão **PDF** no título, Receitas e Despesas com **comparação justa** (mês atual contra os mesmos dias do mês anterior), estado "Nada realizado… ainda" com o link para o calendário e texto no lugar do gráfico vazio. Saiu "Este mês × mês anterior".
+- **Simulador "E se…?"** (em Relatórios): economizar, comprar, renda e dívida parcelada, a partir da média dos 3 meses anteriores. Nada é gravado; "Transformar em meta" abre a meta preenchida. Detalhes em [SIMULADOR.md](SIMULADOR.md).
+
+| Arquivo | Mudança |
+|---|---|
+| `src/core/period.c` (novo) | Período (‹ mês ›), pendências, saldo do dia, calendário do mês, comparação dos Relatórios |
+| `src/core/simulator.c` (novo) | Contas do simulador |
+| `src/core/assist_insights.c` | `MonthReport.highlights`: as 2 frases do Início |
+| `src/ui/page_moves.c` | Lista nova e calendário |
+| `src/ui/page_home.c` | Início enxuto |
+| `src/ui/page_reports.c` | Relatórios renovados |
+| `src/ui/simulator.c` (novo) | Janela "E se…?" |
+| `src/ui/editors.c` | `editor_tx_on` (data inicial) e `editor_goal_prefill` |
+| `src/ui/theme.c` | Estilos do calendário e do simulador (`build_extra`), só com as cores da paleta |
+| `tests/test_period.c` (novo) | 16 testes (os mesmos do Android e da web) + 1 em `test_core.c`: 87 no total |
+
 ## 1.1.8 — correção das dicas de ritmo do assistente (08/10/2026)
 
 **Problema (relatado pelo autor no Finan+ web, mesma regra aqui):** no dia 8, com R$ 500 de receita e uma única despesa de R$ 200, o assistente avisava "Despesas podem passar das receitas" com R$ 775 previstos. A conta multiplicava aquela compra pelos dias do mês (R$ 200 ÷ 8 × 31), como se ela se repetisse todo dia. O mesmo valia para "Ritmo do limite".

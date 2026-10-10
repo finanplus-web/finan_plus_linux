@@ -250,6 +250,46 @@ static char *build_widgets(const FinPalette *p) {
         bg, text, muted, accent, on, accent2, sol, border, track, css(p->red));
 }
 
+/* Calendário, período, resumo e simulador (1.2.0). Só cores da paleta do tema; o roxo do cartão é o mesmo
+ * pontinho do app Android e da versão web. */
+static char *build_extra(const FinPalette *p) {
+    g_autofree char *text = css(p->text), *muted = css(p->muted), *accent = css(p->accent), *on = css(p->on_accent),
+                    *accent2 = css(p->accent2), *red = css(p->red), *green = css(p->green), *track = css(p->track);
+    const char *purple = p->dark ? "#C3A6FF" : "#7446D0";
+    return g_strdup_printf(
+        "button.fin-cal-day { border-radius: 14px; padding: 6px 2px; min-height: 62px; background: none; border: none; box-shadow: none; color: %1$s; }\n"
+        "button.fin-cal-day:hover { background-color: alpha(%3$s, 0.10); }\n"
+        "button.fin-cal-day.today { box-shadow: inset 0 0 0 2px %3$s; }\n"
+        "button.fin-cal-day.sel { background-color: %3$s; color: %4$s; }\n"
+        "button.fin-cal-day.sel label, button.fin-cal-day.sel .fin-green, button.fin-cal-day.sel .fin-red, button.fin-cal-day.sel image { color: %4$s; }\n"
+        "button.fin-cal-day.sel .fin-dot { background-color: %4$s; }\n"
+        ".fin-cal-num { font-weight: 800; }\n"
+        ".fin-cal-val { font-size: 0.78em; font-weight: 700; font-feature-settings: 'tnum'; }\n"
+        ".fin-cal-wd { font-size: 0.75em; font-weight: 700; color: %2$s; letter-spacing: 0.04em; }\n"
+        ".fin-cal-late { color: %6$s; }\n"
+        ".fin-dot { min-width: 6px; min-height: 6px; border-radius: 99px; }\n"
+        ".fin-dot.inc { background-color: %7$s; }\n"
+        ".fin-dot.exp { background-color: %6$s; }\n"
+        ".fin-dot.card { background-color: %9$s; }\n"
+        ".fin-card-purple { color: %9$s; }\n"
+        ".fin-day-head { font-weight: 800; padding: 10px 4px 2px 4px; }\n"
+        ".fin-round.on { background-color: %3$s; color: %4$s; }\n"
+        ".fin-whatif { background-color: %3$s; color: %4$s; border-radius: 22px; padding: 14px 16px; border: none; box-shadow: none; }\n"
+        ".fin-whatif:hover { background-color: shade(%3$s, 1.06); }\n"
+        ".fin-whatif label, .fin-whatif image { color: %4$s; }\n"
+        ".fin-safe { background-color: alpha(%7$s, 0.14); color: %7$s; border-radius: 99px; padding: 6px 12px; font-weight: 700; }\n"
+        ".fin-safe label, .fin-safe image { color: %7$s; }\n"
+        ".fin-simbox { background-color: alpha(%5$s, 0.6); border-radius: 20px; padding: 14px; }\n"
+        ".fin-sim-big { font-size: 1.9em; font-weight: 850; }\n"
+        ".fin-scen { background-color: alpha(%5$s, 0.35); border-radius: 18px; padding: 12px; border: none; box-shadow: none; color: %1$s; }\n"
+        ".fin-scen:hover { background-color: alpha(%3$s, 0.14); }\n"
+        ".fin-scen.on { box-shadow: inset 0 0 0 2px %3$s; }\n"
+        ".fin-scen-ico { background-color: %5$s; border-radius: 14px; min-width: 42px; min-height: 42px; color: %3$s; }\n"
+        ".fin-bar-track { background-color: %8$s; }\n"
+        "button.fin-link, button.fin-link label { color: %3$s; }\n",
+        text, muted, accent, on, accent2, red, green, track, purple);
+}
+
 void theme_apply(ThemeId t) {
     AdwStyleManager *sm = adw_style_manager_get_default();
     if (t == THEME_AUTO) adw_style_manager_set_color_scheme(sm, ADW_COLOR_SCHEME_DEFAULT);
@@ -266,7 +306,8 @@ void theme_apply(ThemeId t) {
     g_autofree char *base = build_css(current);
     g_autofree char *vars = adw_get_major_version() > 1 || adw_get_minor_version() >= 6 ? build_vars(current) : g_strdup("");
     g_autofree char *widgets = build_widgets(current);
-    g_autofree char *sheet = g_strconcat(base, vars, widgets, NULL);
+    g_autofree char *extra = build_extra(current);
+    g_autofree char *sheet = g_strconcat(base, vars, widgets, extra, NULL);
     gtk_css_provider_load_from_string(provider, sheet);
     if (g_getenv("FINAN_PLUS_DEBUG")) g_printerr("[Finan+] tema %d aplicado (escuro=%d, libadwaita %u.%u)\n", t, current->dark, adw_get_major_version(), adw_get_minor_version());
 }
