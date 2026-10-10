@@ -1,7 +1,7 @@
 # Finan+ — Copyright (C) 2026 Juscelino Be
 # SPDX-License-Identifier: GPL-3.0-or-later
 project('finan-plus', 'c',
-  version: '1.1.8',
+  version: '1.2.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 0.63',
   default_options: ['c_std=gnu11', 'warning_level=2', 'buildtype=release', 'b_ndebug=if-release'])
@@ -73,7 +73,7 @@ install_man('data/finan-plus.1')
 test_core = executable('test-core', 'tests/test_core.c',
   dependencies: [core_dep],
   c_args: ['-DDICT_PATH="@0@"'.format(meson.current_source_dir() / 'data/dicionario.txt')])
-test('núcleo (60 casos do app Android)', test_core, env: ['FINAN_PLUS_NO_KEYRING=1'])
+test('núcleo (casos do app Android)', test_core, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_period = executable('test-period', 'tests/test_period.c', dependencies: [core_dep])
 test('período, calendário e simulador (casos do Android 1.4.0)', test_period, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_store = executable('test-store', 'tests/test_store.c', dependencies: [core_dep])

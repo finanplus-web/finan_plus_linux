@@ -40,7 +40,16 @@ Testes: os 26 casos do assistente em `tests/test_core.c` (os mesmos do app Andro
 
 ## 2. Resumo do mês
 
-**Onde aparece:** cartão "Assistente" no Início e na tela Assistente (Ctrl+4).
+**Onde aparece:** completo na tela Assistente (Ctrl+4); no Início, só as **2 frases mais úteis** (desde a 1.2.0, como no app Android 1.3.0 e no Finan+ web 1.2.0).
+
+**Quais frases vão para o Início** (`MonthReport.highlights`, em `src/core/assist_insights.c`), nesta ordem de prioridade, pegando as 2 primeiras que existirem:
+1. contas em atraso;
+2. contas a pagar até o fim do mês;
+3. quanto já gastou no mês (com a comparação);
+4. quanto falta receber no mês;
+5. quanto entrou e quanto sobra.
+
+"Ainda não há despesas realizadas" e o fechamento do mês anterior ficam só no resumo completo. Se nenhuma das cinco existir, o Início mostra a primeira frase do resumo.
 
 Mostra, quando houver dados:
 - quanto foi gasto no mês até hoje, comparado com **os mesmos dias** do mês anterior (dia 1 ao dia de hoje), para a comparação ser justa;
@@ -55,7 +64,7 @@ Convenções (as mesmas dos Relatórios): conta só o que foi **realizado** (pag
 
 ## 3. Dicas de economia
 
-Aparecem só quando há algo fora do padrão. As duas mais importantes ficam no Início e todas ficam na tela Assistente. Cada dica pode ser **dispensada** (e restaurada depois) e, quando faz sentido, tem **"Ver lançamentos"**, que abre a lista já filtrada.
+Aparecem só quando há algo fora do padrão. A mais importante fica no Início (com o link "Ver as N dicas" quando há mais) e todas ficam na tela Assistente. Cada dica pode ser **dispensada** (e restaurada depois) e, quando faz sentido, tem **"Ver lançamentos"**, que abre a lista já filtrada.
 
 | Dica | Regra exata | Limites (em `assist.h`) |
 |---|---|---|
