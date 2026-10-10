@@ -1,8 +1,10 @@
 /* Finan+ — Copyright (C) 2026 Juscelino Be
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Relatórios: despesas por categoria (rosca e barras, com limites), evolução dos últimos 6 meses
- * e este mês × mês anterior. Usa o período escolhido em Lançamentos e só valores realizados.
+ * Relatórios: o mesmo período da aba Lançamentos (‹ mês › e "Período e filtros"), só valores realizados.
+ * Resumo com comparação justa (mês atual contra os mesmos dias do mês anterior), atalho para o
+ * simulador "E se…?", despesas por categoria (rosca e barras, com limites) e evolução dos últimos 6 meses.
+ * Sem nada realizado no período, mostra o que está pendente e leva ao calendário.
  */
 #include "pages.h"
 #include "pdf.h"
@@ -10,6 +12,7 @@
 #include "widgets.h"
 #include "core/finance.h"
 #include "core/report.h"
+#include "core/period.h"
 #include <math.h>
 
 static GtkWidget *body;
@@ -39,7 +42,7 @@ static GtkWidget *categories_card(void) {
     g_autoptr(GPtrArray) cats = category_totals(s, f->from, f->to);
     Cents total = 0;
     for (guint i = 0; i < cats->len; i++) total += ((CatTotal *)cats->pdata[i])->value;
-    if (!cats->len) { w_add(c, w_label_wrap("Sem despesas no período.", "fin-muted")); return c; }
+    if (!cats->len) { w_add(c, w_label_wrap("Sem despesas realizadas no período.", "fin-muted")); return c; }
 
     /* rosca com as 7 maiores + "Outras" */
     DonutData *dd = g_new0(DonutData, 1);
@@ -199,6 +202,15 @@ static GtkWidget *months_card(void) {
             g_string_append_printf(desc, "%s: receitas %s, despesas %s; ", my, a, b);
         }
     }
+    gboolean empty = TRUE;
+    for (int i = 0; i < 6; i++) if (m->f[i].income || m->f[i].expense) empty = FALSE;
+    if (empty) {
+        /* sem nenhum mês com valores: texto no lugar do gráfico vazio */
+        g_free(m);
+        g_string_free(desc, TRUE);
+        w_add(c, w_label_wrap("Aparece quando houver pelo menos um mês com valores realizados.", "fin-muted"));
+        return c;
+    }
     GtkWidget *da = gtk_drawing_area_new();
     gtk_widget_set_size_request(da, -1, 220);
     gtk_widget_set_hexpand(da, TRUE);
@@ -210,35 +222,98 @@ static GtkWidget *months_card(void) {
     return c;
 }
 
-/* ---------------------------------------------------------------- este mês × anterior */
+/* ---------------------------------------------------------------- resumo do período */
 
-static char *chg(Cents a, Cents b) {
-    if (b == 0) return g_strdup("Sem base");
-    double c = (a - b) * 100.0 / b;
-    return g_strdup_printf("%s%.0f%% vs. mês anterior", c >= 0 ? "+" : "−", fabs(c));
+/* lançamentos do estado entre [from] e [to] (DAY_NONE = sem limite) */
+static GPtrArray *in_range(Day from, Day to) {
+    GPtrArray *a = g_ptr_array_new();
+    for (guint i = 0; i < APP->state->txs->len; i++) {
+        Tx *t = APP->state->txs->pdata[i];
+        if ((from == DAY_NONE || t->date >= from) && (to == DAY_NONE || t->date <= to)) g_ptr_array_add(a, t);
+    }
+    return a;
 }
 
-static GtkWidget *compare_card(void) {
-    Ym ym = day_ym(APP->today);
-    Flow cur = month_flow(APP->state, ym), prev = month_flow(APP->state, ym - 1);
-    GtkWidget *c = w_card(NULL);
-    gtk_widget_set_valign(c, GTK_ALIGN_START);
-    w_add(c, w_section_head("Comparação", "Este mês × mês anterior"));
-    GtkWidget *row = w_hbox(10);
-    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
-    const char *labels[2] = {"Receitas", "Despesas"};
-    Cents vals[2] = {cur.income, cur.expense}, prevs[2] = {prev.income, prev.expense};
-    for (int i = 0; i < 2; i++) {
-        GtkWidget *b = w_vbox(4);
-        gtk_widget_add_css_class(b, "fin-soft");
-        w_add(b, w_label(labels[i], "fin-muted caption"));
-        w_add(b, w_money(vals[i], "fin-money-mid"));
-        g_autofree char *t = app_hidden() ? g_strdup("••") : chg(vals[i], prevs[i]);
-        w_add(b, w_label(t, "fin-muted caption"));
-        w_add(row, b);
+static void open_calendar(gpointer u) {
+    (void)u;
+    const Filters *f = &APP->filters;
+    app_open_calendar(day_ym(f->from != DAY_NONE ? f->from : APP->today));
+}
+
+static GtkWidget *sum_box(const char *icon, const char *label, Cents v, const char *cls, const char *change) {
+    GtkWidget *b = w_card("fin-tight");
+    gtk_widget_set_hexpand(b, TRUE);
+    w_add(b, w_icon_label(icon, label, "fin-muted caption"));
+    w_add(b, w_money(v, cls));
+    if (change) w_add(b, w_label(change, "fin-muted caption"));
+    return b;
+}
+
+static GtkWidget *summary(void) {
+    const Filters *f = &APP->filters;
+    g_autoptr(GPtrArray) txs = in_range(f->from, f->to);
+    Flow fl = flow_of(txs);
+    if (fl.income == 0 && fl.expense == 0) {
+        /* nada realizado: em vez de zeros, o que está pendente e o caminho para o calendário */
+        Pending p = period_pending(txs);
+        Ym ym;
+        g_autofree char *title = g_strdup_printf("Nada realizado em %s ainda", period_full_month(f->from, f->to, &ym) ? br_month(ym) : "este período");
+        GtkWidget *c = w_card(NULL);
+        w_add(c, w_title(title));
+        if (p.to_receive > 0 || p.to_pay > 0) {
+            w_add(c, w_label_wrap("Os relatórios mostram o que já foi pago ou recebido. Por enquanto, está pendente:", "fin-muted"));
+            GtkWidget *row = w_hbox(10);
+            gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
+            GtkWidget *a = w_vbox(2), *b = w_vbox(2);
+            w_add(a, w_label("A receber", "fin-muted caption"));
+            w_add(a, w_money(p.to_receive, "fin-money-mid fin-green"));
+            w_add(b, w_label("A pagar", "fin-muted caption"));
+            w_add(b, w_money(p.to_pay, "fin-money-mid fin-red"));
+            w_add(row, a);
+            w_add(row, b);
+            w_add(c, row);
+        } else {
+            w_add(c, w_label_wrap("Os relatórios mostram o que já foi pago ou recebido. Troque o período ou marque lançamentos como pagos.", "fin-muted"));
+        }
+        GtkWidget *link = w_button("Ver no calendário", "calendar-month", "flat fin-link", open_calendar, NULL, NULL);
+        gtk_widget_set_halign(link, GTK_ALIGN_START);
+        w_add(c, link);
+        return c;
     }
-    w_add(c, row);
-    return c;
+    Compare cmp;
+    gboolean has_cmp = period_compare(f->from, f->to, APP->today, &cmp);
+    Flow prev = {0, 0};
+    if (has_cmp) {
+        g_autoptr(GPtrArray) pt = in_range(cmp.from, cmp.to);
+        prev = flow_of(pt);
+    }
+    /* com "Ocultar valores", a variação também fica oculta (revelaria a proporção entre os períodos) */
+    g_autofree char *ci = app_hidden() ? g_strdup("Variação oculta") : has_cmp ? period_compare_text(fl.income, prev.income, &cmp) : NULL;
+    g_autofree char *ce = app_hidden() ? g_strdup("Variação oculta") : has_cmp ? period_compare_text(fl.expense, prev.expense, &cmp) : NULL;
+    GtkWidget *row = w_hbox(12);
+    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(row), GTK_ACCESSIBLE_PROPERTY_LABEL, "Resumo do período", -1);
+    w_add(row, sum_box("arrow-upward", "Receitas", fl.income, "fin-money-big fin-green", ci));
+    w_add(row, sum_box("arrow-downward", "Despesas", fl.expense, "fin-money-big fin-red", ce));
+    return row;
+}
+
+static void open_sim(gpointer u) { (void)u; simulator_open(); }
+
+/* atalho para o simulador "E se…?" */
+static GtkWidget *what_if(void) {
+    GtkWidget *btn = w_button("E se…?", NULL, "fin-row fin-whatif", open_sim, NULL, NULL);
+    GtkWidget *row = w_hbox(12);
+    w_add(row, w_icon("auto-awesome", 24));
+    GtkWidget *t = w_vbox(2);
+    gtk_widget_set_hexpand(t, TRUE);
+    w_add(t, w_label("E se…?", "heading"));
+    w_add(t, w_label_wrap("Simule economizar, comprar algo, uma mudança na renda ou antecipar uma dívida, sem mexer nos seus dados.", "fin-muted caption"));
+    w_add(row, t);
+    w_add(row, w_icon("chevron-right", 20));
+    gtk_button_set_child(GTK_BUTTON(btn), row);
+    gtk_widget_set_tooltip_text(btn, "Abrir o simulador \"E se…?\"");
+    return btn;
 }
 
 /* ---------------------------------------------------------------- montagem */
@@ -248,41 +323,44 @@ static void export_pdf(gpointer u) { (void)u; report_pdf_dialog(APP->filters.fro
 void page_reports_refresh(void) {
     if (!body || !APP->state) return;
     w_clear(body);
-    const Filters *f = &APP->filters;
     GtkWidget *head = w_hbox(12);
-    GtkWidget *t = w_vbox(2);
+    GtkWidget *t = w_label("Relatórios", "fin-page-title");
     gtk_widget_set_hexpand(t, TRUE);
-    w_add(t, w_eyebrow("Análise"));
-    w_add(t, w_label("Relatórios", "fin-page-title"));
-    char a[11], b[11];
-    g_autofree char *period = f->from == DAY_NONE && f->to == DAY_NONE
-                                  ? g_strdup("Todo o histórico.")
-                                  : g_strdup_printf("Período: %s a %s (datas da aba Lançamentos).", f->from == DAY_NONE ? "início" : day_br(f->from, a),
-                                                    f->to == DAY_NONE ? "hoje" : day_br(f->to, b));
-    g_autofree char *sub = g_strdup_printf("%s Considera só valores realizados.", period);
-    w_add(t, w_label_wrap(sub, "fin-muted"));
+    gtk_label_set_xalign(GTK_LABEL(t), 0);
     w_add(head, t);
-    GtkWidget *pdf = w_button("Exportar relatório em PDF", "picture-as-pdf", "suggested-action pill", export_pdf, NULL, NULL);
-    gtk_widget_set_tooltip_text(pdf, "Relatório completo do período em PDF (Ctrl+P)");
+    GtkWidget *pdf = w_button("PDF", "picture-as-pdf", "fin-pill", export_pdf, NULL, NULL);
+    gtk_widget_set_tooltip_text(pdf, "Exportar relatório em PDF (Ctrl+P)");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(pdf), GTK_ACCESSIBLE_PROPERTY_LABEL, "Exportar relatório em PDF", -1);
     gtk_widget_set_valign(pdf, GTK_ALIGN_CENTER);
     w_add(head, pdf);
-    if (APP->layout == LAYOUT_NARROW) gtk_orientable_set_orientation(GTK_ORIENTABLE(head), GTK_ORIENTATION_VERTICAL);
     w_add(body, head);
+    GtkWidget *bar = period_bar_new();
+    GtkWidget *bar_wrap = w_vbox(4);
+    w_add(bar_wrap, bar);
+    w_add(bar_wrap, w_label_wrap("Só valores realizados (pagos ou recebidos). O período é o mesmo da aba Lançamentos.", "fin-muted caption"));
+    if (APP->layout != LAYOUT_NARROW) gtk_widget_set_size_request(bar, 420, -1), gtk_widget_set_halign(bar_wrap, GTK_ALIGN_START);
+    w_add(body, bar_wrap);
 
+    GtkWidget *sum = summary(), *sim = what_if(), *cat = categories_card(), *mon = months_card();
+    if (APP->layout == LAYOUT_NARROW) {
+        w_add(body, sum);
+        w_add(body, sim);
+        w_add(body, cat);
+        w_add(body, mon);
+        return;
+    }
     GtkWidget *g = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(g), 18);
-    gtk_grid_set_row_spacing(GTK_GRID(g), 18);
     gtk_grid_set_column_homogeneous(GTK_GRID(g), TRUE);
-    GtkWidget *cat = categories_card(), *mon = months_card(), *cmp = compare_card();
-    if (APP->layout == LAYOUT_NARROW) {
-        gtk_grid_attach(GTK_GRID(g), cat, 0, 0, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), mon, 0, 1, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), cmp, 0, 2, 1, 1);
-    } else {
-        gtk_grid_attach(GTK_GRID(g), cat, 0, 0, 1, 2);
-        gtk_grid_attach(GTK_GRID(g), mon, 1, 0, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), cmp, 1, 1, 1, 1);
-    }
+    GtkWidget *left = w_vbox(18), *right = w_vbox(18);
+    gtk_widget_set_valign(left, GTK_ALIGN_START);
+    gtk_widget_set_valign(right, GTK_ALIGN_START);
+    w_add(left, sum);
+    w_add(left, sim);
+    w_add(left, mon);
+    w_add(right, cat);
+    gtk_grid_attach(GTK_GRID(g), left, 0, 0, 1, 1);
+    gtk_grid_attach(GTK_GRID(g), right, 1, 0, 1, 1);
     w_add(body, g);
 }
 

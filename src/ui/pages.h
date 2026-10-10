@@ -34,6 +34,12 @@ void editor_tx(Kind kind, const char *id);
 /* lançamento novo já com a data [on] (calendário); numa data futura começa pendente */
 void editor_tx_on(Kind kind, Day on, const char *id);
 void editor_goal(const char *id);
+/* meta nova já preenchida (vinda do simulador "E se…?"); valores 0/NULL ficam em branco */
+void editor_goal_pre(const char *id, const char *name, Cents target, Cents monthly);
+/* simulador "E se…?" (nada é gravado) */
+void simulator_open(void);
+/* barra ‹ mês › com "Período e filtros" (o mesmo período de Lançamentos e Relatórios) */
+GtkWidget *period_bar_new(void);
 void editor_account(const char *id);
 void editor_card(const char *id);
 void editor_recurring(const char *id);

@@ -482,6 +482,23 @@ static GtkWidget *round_btn(const char *icon, const char *tip, FinFn fn, gpointe
     return b;
 }
 
+/* a mesma barra ‹ mês › usada em Relatórios: muda o período das duas telas */
+GtkWidget *period_bar_new(void) {
+    const Filters *f = &APP->filters;
+    GtkWidget *bar = w_hbox(6);
+    w_add(bar, round_btn("chevron-left", "Mês anterior", shift, GINT_TO_POINTER(-1)));
+    g_autofree char *label = period_label(f->from, f->to);
+    GtkWidget *l = w_label(label, "title-4");
+    gtk_label_set_xalign(GTK_LABEL(l), 0.5f);
+    gtk_widget_set_hexpand(l, TRUE);
+    w_add(bar, l);
+    w_add(bar, round_btn("chevron-right", "Próximo mês", shift, GINT_TO_POINTER(1)));
+    GtkWidget *tune = round_btn("tune", "Período e filtros", open_filters, NULL);
+    if (filters_custom()) gtk_widget_add_css_class(tune, "on");
+    w_add(bar, tune);
+    return bar;
+}
+
 static GtkWidget *chip(const char *label, int which) {
     GtkWidget *b = gtk_toggle_button_new_with_label(label);
     gtk_widget_add_css_class(b, "fin-pill");

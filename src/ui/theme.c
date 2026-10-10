@@ -161,6 +161,8 @@ static char *build_css(const FinPalette *p) {
         ".fin-late { color: %9$s; font-weight: 700; }\n"
         ".fin-plain-flow > flowboxchild { padding: 0; background: none; }\n"
         ".fin-round.on { background-color: %6$s; color: %8$s; }\n"
+        ".fin-row.fin-sim-on { border: 2px solid %6$s; background-color: alpha(%6$s, 0.10); }\n"
+        ".fin-row.fin-whatif { padding: 14px 16px; }\n"
         ".fin-day-head { padding: 12px 6px 4px 6px; }\n"
         ".fin-segment { background-color: alpha(%7$s, 0.6); border-radius: 99px; padding: 3px; }\n"
         ".fin-cal-day { border-radius: 14px; padding: 6px 6px; background-color: %2$s; border: 1px solid %3$s; box-shadow: none; min-height: 0; }\n"
