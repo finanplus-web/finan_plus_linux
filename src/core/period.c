@@ -49,6 +49,13 @@ Pending period_month_pending(const AppState *s, Ym ym, Day today) {
     }
     g_autoptr(GArray) inv = cal_invoices_due(s, ym, today);
     for (guint i = 0; i < inv->len; i++) p.to_pay += g_array_index(inv, InvoiceDue, i).amount;
+    /* num mês que ainda não chegou, as recorrências previstas também faltam entrar ou sair */
+    g_autoptr(GPtrArray) prev = projection_between(s, ym_first(ym), ym_last(ym), today);
+    for (guint i = 0; i < prev->len; i++) {
+        const Tx *t = prev->pdata[i];
+        if (tx_is_card(t)) continue;
+        if (t->kind == KIND_INCOME) p.to_receive += t->value; else p.to_pay += t->value;
+    }
     return p;
 }
 
@@ -156,6 +163,12 @@ CalMonth *cal_build(const AppState *s, Ym ym, Day today) {
         Tx *t = s->txs->pdata[i];
         if (day_ym(t->date) == ym) g_ptr_array_add(day_slot(m, t->date)->txs, t);
     }
+    /* recorrências previstas nos meses que ainda não chegaram (não são gravadas; RECORRENCIAS.md) */
+    m->projected = projection_between(s, ym_first(ym), ym_last(ym), today);
+    for (guint i = 0; i < m->projected->len; i++) {
+        Tx *t = m->projected->pdata[i];
+        g_ptr_array_add(day_slot(m, t->date)->txs, t);
+    }
     g_autoptr(GArray) inv = cal_invoices_due(s, ym, today);
     for (guint i = 0; i < inv->len; i++) {
         InvoiceDue *v = &g_array_index(inv, InvoiceDue, i);
@@ -195,6 +208,7 @@ void cal_month_free(CalMonth *m) {
         g_array_unref(m->days[k]->invoices);
         g_free(m->days[k]);
     }
+    if (m->projected) g_ptr_array_unref(m->projected);
     g_free(m);
 }
 

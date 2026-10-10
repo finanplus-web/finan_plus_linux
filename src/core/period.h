@@ -93,6 +93,7 @@ typedef struct {
 typedef struct {
     Ym ym;
     CalDay *days[31];
+    GPtrArray *projected; /* recorrências previstas do mês (donas dos Tx* que aparecem nos dias) */
 } CalMonth;
 
 /* Faturas em aberto (de todos os cartões) que vencem no mês. GArray de InvoiceDue. */

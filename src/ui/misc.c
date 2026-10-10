@@ -25,6 +25,7 @@ void show_about(void) {
     adw_about_dialog_add_legal_section(a, "libsecret e json-glib", "© The GNOME Project", GTK_LICENSE_LGPL_2_1, NULL);
     adw_about_dialog_set_release_notes_version(a, APP_VERSION);
     adw_about_dialog_set_release_notes(a,
+        "<p>1.2.1: receitas e despesas fixas (recorrências) aparecem nos próximos meses como \"Previsto\" no calendário, na Lista e no saldo previsto; clique num previsto para abrir a recorrência. Nada é gravado antes da hora.</p>"
         "<p>1.2.0: o que chegou ao app Android e ao Finan+ web:</p>"
         "<ul><li>Calendário de lançamentos (Lançamentos › Calendário), com o saldo de cada dia e lançar direto numa data</li>"
         "<li>Simulador \u201cE se…?\u201d em Relatórios: economizar, comprar, mudança na renda e antecipar uma dívida, sem mexer nos dados</li>"

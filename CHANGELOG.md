@@ -1,5 +1,19 @@
 # Changelog — Finan+ para Linux
 
+## 1.2.1 — Recorrências aparecem nos próximos meses (10/10/2026)
+
+**Problema (relatado pelo autor no Android e na web, mesma regra aqui):** a receita fixa "Adiantamento Quinzenal" (todo dia 15) não aparecia em novembro e dezembro no calendário, enquanto uma despesa parcelada aparecia. Causa: toda recorrência só vira lançamento quando o mês chega; as parcelas são criadas de uma vez.
+
+**Agora:** nos meses que ainda não chegaram, as recorrências ativas aparecem como **Previsto** no calendário, na Lista (quando o período chega lá), nas pendências do mês e no saldo previsto ao fim do dia. Clicar num previsto abre a recorrência; mudar ou pausar a recorrência muda os previstos na hora. **Nada é gravado**: o lançamento real continua sendo criado quando o mês chega. Mesma regra do Android 1.4.1 e do Finan+ web 1.3.1. Detalhes em [RECORRENCIAS.md](RECORRENCIAS.md).
+
+| Arquivo | Mudança |
+|---|---|
+| `src/core/finance.c` | `projection_between`, `tx_is_projected`; `future_balance` conta os previstos |
+| `src/core/period.c` | Calendário (`CalMonth.projected`) e pendências do mês contam os previstos |
+| `src/core/ops.c` | Previsto não alterna pago/pendente |
+| `src/ui/page_moves.c`, `page_calendar.c` | Lista inclui os previstos; linha "Previsto · recorrência" abre a recorrência (`tx_row_activate`) |
+| `tests/test_period.c` | 4 testes novos (os mesmos do Android e da web) |
+
 ## 1.2.0 — Calendário, simulador "E se…?", Relatórios, Início e Lista renovados (10/10/2026)
 
 O Finan+ para Linux recebe tudo o que chegou ao app Android (1.1.1 a 1.4.0) e ao Finan+ web (1.2.0 e 1.3.0) desde a primeira versão, com as mesmas regras e os mesmos testes. Fica de fora só o que existe apenas no celular: acesso pela rede, gestos de deslizar e widget.
