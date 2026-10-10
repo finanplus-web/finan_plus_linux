@@ -5,6 +5,7 @@
 # Publicação automática: quando chega na main uma versão do meson.build que ainda não tem
 # Release (ex.: 1.1.7 → v1.1.7), o fluxo cria a tag e a Release com o .deb e as notas do
 # CHANGELOG.md. Enviar a tag vX.Y.Z manualmente também funciona.
+# Rodar à mão na main (workflow_dispatch) anexa o .AppImage à Release já existente da versão atual.
 name: Compilar e publicar
 
 on:
@@ -91,4 +92,20 @@ jobs:
           else
             gh release create "v$V" finan-plus_*_amd64.deb finan-plus_*_*.AppImage --target "$GITHUB_SHA" \
               --title "Finan+ para Linux $V" --notes-file notas.md
+          fi
+
+      # Execução manual (Actions › Compilar e publicar › Run workflow) na main: anexa o .AppImage à Release
+      # que já existe para a versão atual, sem trocar o .deb publicado. Usado para levar o AppImage à 1.2.1.
+      - name: Anexar o AppImage à Release existente
+        if: github.event_name == 'workflow_dispatch' && github.ref_name == 'main' && steps.ver.outputs.publish != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          if ! gh release view "v$V" >/dev/null 2>&1; then echo "Sem Release v$V: nada a anexar"; exit 0; fi
+          gh release upload "v$V" finan-plus_*_*.AppImage --clobber
+          if ! gh release view "v$V" --json body --jq .body | grep -q AppImage; then
+            gh release view "v$V" --json body --jq .body > notas.md
+            printf '\n\n**AppImage (outras distribuições):** baixe o `.AppImage`, torne executável (`chmod +x finan-plus_%s_x86_64.AppImage`) e execute. Precisa de GTK 4.12+ e libadwaita 1.5+ no sistema; algumas distros pedem o pacote `libfuse2`. Contribuição de @satodu.\n' "$V" >> notas.md
+            gh release edit "v$V" --notes-file notas.md
           fi
