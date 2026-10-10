@@ -7,11 +7,15 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 | Lançamentos | Relatórios |
 |---|---|
 | ![Lançamentos](docs/lancamentos.png) | ![Relatórios](docs/relatorios.png) |
+| **Calendário** | **Simulador "E se…?"** |
+| ![Calendário](docs/calendario.png) | ![Simulador](docs/simulador.png) |
 | **Ajustes (tema Tokyo Night)** | **Janela estreita** |
 | ![Ajustes](docs/ajustes-tokyo.png) | ![Estreita](docs/janela-estreita.png) |
 
 - Lista completa do que o app faz: [FUNCIONALIDADES.md](FUNCIONALIDADES.md)
 - Como o assistente decide cada coisa: [ASSISTENTE.md](ASSISTENTE.md)
+- Calendário de lançamentos: [CALENDARIO.md](CALENDARIO.md)
+- Simulador "E se…?": [SIMULADOR.md](SIMULADOR.md)
 - O que foi feito nesta versão: [CHANGELOG.md](CHANGELOG.md)
 
 **Baixar:** [última versão (.deb)](https://github.com/finanplus-web/finan_plus_linux/releases/latest) · **Finan+ web (PWA):** [usar no navegador](https://finanplus-web.github.io/finan_plus/) ([código-fonte](https://github.com/finanplus-web/finan_plus))
@@ -60,7 +64,7 @@ sudo apt install build-essential meson ninja-build pkg-config \
      libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev
 meson setup build
 ninja -C build
-meson test -C build          # 70 testes (núcleo igual ao do app Android, armazenamento/PIN e PDF)
+meson test -C build          # 87 testes (núcleo, período, calendário e simulador iguais aos do app Android, armazenamento/PIN e PDF)
 ./build/finan-plus
 ```
 
@@ -74,11 +78,12 @@ Variáveis úteis para testar sem tocar nos seus dados: `FINAN_PLUS_DATA_DIR`, `
 
 ```
 src/core/      núcleo sem interface (testado): modelo, dinheiro, finanças, operações,
-               backup JSON, assistente, relatório, armazenamento criptografado, PIN
-src/ui/        interface GTK 4 / libadwaita: janela, telas, editores, PDF, avisos
+               backup JSON, assistente, relatório, período e calendário, simulador,
+               armazenamento criptografado, PIN
+src/ui/        interface GTK 4 / libadwaita: janela, telas, calendário, simulador, editores, PDF, avisos
 src/main.c     ponto de entrada (finan-plus, finan-plus --avisos)
 data/          dicionário do assistente, ícones, .desktop, metainfo, manual
-tests/         testes (GLib): núcleo, armazenamento/PIN, PDF
+tests/         testes (GLib): núcleo, período/calendário/simulador, armazenamento/PIN, PDF
 tools/         ferramentas de desenvolvimento (dados de demonstração, capturas de tela)
 packaging/     script do pacote .deb
 ```

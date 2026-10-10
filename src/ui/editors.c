@@ -303,7 +303,9 @@ static void tx_delete(GtkButton *b, TxEd *e) {
     dlg_confirm("Excluir lançamento", "Excluir este lançamento?", "Excluir", TRUE, tx_delete_confirmed, d, del_ctx_free);
 }
 
-void editor_tx(Kind kind, const char *id) {
+void editor_tx(Kind kind, const char *id) { editor_tx_on(kind, id, DAY_NONE); }
+
+void editor_tx_on(Kind kind, const char *id, Day date) {
     const AppState *s = APP->state;
     Tx *tx = id ? app_tx(s, id) : NULL;
     TxEd *e = g_new0(TxEd, 1);
@@ -384,10 +386,12 @@ void editor_tx(Kind kind, const char *id) {
     g_autoptr(GPtrArray) an = account_names();
     e->account = row_combo("Conta", (const char *const *)an->pdata, (int)an->len, tx ? index_of_account(tx->account_id) : 0);
     gadd(g2, e->account);
-    e->date = row_date("Data", tx ? tx->date : APP->today, FALSE);
+    Day start = tx ? tx->date : date != DAY_NONE ? date : APP->today;
+    e->date = row_date("Data", start, FALSE);
     gadd(g2, e->date);
     if (!e->payment) {
-        e->paid = row_switch("Despesa já paga", NULL, tx ? tx->paid : TRUE);
+        /* numa data futura (ex.: escolhida no calendário), o lançamento novo começa como pendente */
+        e->paid = row_switch("Despesa já paga", NULL, tx ? tx->paid : start <= APP->today);
         gadd(g2, e->paid);
     }
     if (!tx) {
@@ -444,7 +448,11 @@ static void goal_delete(GtkButton *b, GoalEd *e) {
     dlg_confirm("Excluir meta", msg, "Excluir", TRUE, goal_del, d, del_ctx_free);
 }
 
-void editor_goal(const char *id) {
+static void goal_editor(const char *id, const char *pre_name, Cents pre_target, Cents pre_monthly);
+void editor_goal(const char *id) { goal_editor(id, NULL, 0, 0); }
+void editor_goal_prefill(const char *name, Cents target, Cents monthly) { goal_editor(NULL, name, target, monthly); }
+
+static void goal_editor(const char *id, const char *pre_name, Cents pre_target, Cents pre_monthly) {
     Goal *g = id ? app_goal(APP->state, id) : NULL;
     GoalEd *e = g_new0(GoalEd, 1);
     e->id = g ? g_strdup(g->id) : NULL;
@@ -455,8 +463,8 @@ void editor_goal(const char *id) {
     g_object_set_data_full(G_OBJECT(f->dialog), "ed", e, (GDestroyNotify)goal_ed_free);
     GtkWidget *gr = group(f->content, NULL);
     char b1[32], b2[32];
-    e->name = row_entry("Nome", g ? g->name : "", 60);
-    e->target = row_entry("Valor da meta (R$)", g ? money_input(g->target, b1) : "", 20);
+    e->name = row_entry("Nome", g ? g->name : pre_name ? pre_name : "", 60);
+    e->target = row_entry("Valor da meta (R$)", g ? money_input(g->target, b1) : pre_target > 0 ? money_input(pre_target, b1) : "", 20);
     gadd(gr, e->name);
     gadd(gr, e->target);
     if (g) {
@@ -465,7 +473,8 @@ void editor_goal(const char *id) {
         gadd(gr, e->move);
     }
     e->deadline = row_date("Prazo (opcional)", g ? g->deadline : DAY_NONE, TRUE);
-    e->monthly = row_entry("Contribuição mensal planejada (opcional)", g && g->monthly > 0 ? money_input(g->monthly, b2) : "", 20);
+    e->monthly = row_entry("Contribuição mensal planejada (opcional)",
+                           g && g->monthly > 0 ? money_input(g->monthly, b2) : !g && pre_monthly > 0 ? money_input(pre_monthly, b2) : "", 20);
     gadd(gr, e->deadline);
     gadd(gr, e->monthly);
     g_signal_connect(f->save, "clicked", G_CALLBACK(goal_save), e);

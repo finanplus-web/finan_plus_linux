@@ -118,6 +118,7 @@ void app_open_moves(const char *query, Day from, Day to, int kind) {
     f->to = to;
     f->kind = kind;
     f->paid = -1;
+    APP->moves_view = 0; /* as dicas e respostas do assistente abrem a lista */
     app_refresh_page(PAGE_MOVES);
     app_refresh_page(PAGE_REPORTS);
     app_show_page(PAGE_MOVES);
@@ -263,6 +264,8 @@ static gboolean tick(gpointer u) {
     Day t = day_today();
     if (t != APP->today) {
         /* virou o dia: saldos previstos, faturas, "Em atraso", resumo e recorrências do mês novo */
+        /* o calendário que estava em "hoje" acompanha a virada */
+        if (APP->cal_day == APP->today && APP->cal_month == day_ym(APP->today)) { APP->cal_day = t; APP->cal_month = day_ym(t); }
         APP->today = t;
         if (generate_recurring(APP->state, t) > 0) app_commit();
         else app_refresh();
@@ -519,6 +522,8 @@ void app_activate(GtkApplication *gapp) {
     APP->filters.kind = -1;
     APP->filters.paid = -1;
     APP->filters.query = g_strdup("");
+    APP->cal_month = YM_NONE;
+    APP->cal_day = DAY_NONE;
     filters_this_month(&APP->filters);
     APP->layout = LAYOUT_WIDE;
     APP->files = g_cancellable_new();

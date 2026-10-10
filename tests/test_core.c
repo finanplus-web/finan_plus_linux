@@ -689,6 +689,24 @@ static void test_ins_report(void) {
     month_report_free(r);
 }
 
+/* Início: as 2 frases mais úteis, por prioridade (AssistTest.destaquesDoInicioPorPrioridade) */
+static void test_ins_highlights(void) {
+    g_autoptr(AppState) s = st(ex_full("Aluguel", "Moradia", 70000, "2026-10-20", FALSE, NULL, NULL),
+                               ex_full("Luz", "Moradia", 31250, "2026-10-20", FALSE, NULL, NULL),
+                               inc_full("Salário", "Salário", 121362, "2026-10-20", FALSE), NULL);
+    MonthReport *r = insights_report(s, TODAY, money_fmt);
+    g_assert_cmpuint(r->highlights->len, ==, 2);
+    g_assert_cmpstr(r->highlights->pdata[0], ==, "Ainda faltam R$ 1.012,50 em 2 contas a pagar até o fim do mês.");
+    g_assert_cmpstr(r->highlights->pdata[1], ==, "A receber neste mês: R$ 1.213,62 em 1 lançamento.");
+    month_report_free(r);
+    g_autoptr(AppState) s2 = st(ex_full("Internet", "Moradia", 11990, "2026-10-06", FALSE, NULL, NULL), EX("Mercado", "Alimentação", 30000, "2026-10-05"), NULL);
+    r = insights_report(s2, TODAY, money_fmt);
+    g_assert_cmpuint(r->highlights->len, ==, 2);
+    g_assert_true(contains(r->highlights->pdata[0], "em atraso"));
+    g_assert_true(contains(r->highlights->pdata[1], "você gastou R$ 300,00"));
+    month_report_free(r);
+}
+
 static void test_ins_duplicate(void) {
     g_autoptr(AppState) s = st(EX("Padaria", "Alimentação", 1250, "2026-10-10"), EX("padaria", "Alimentação", 1250, "2026-10-10"),
                                EX("Padaria", "Alimentação", 1250, "2026-10-11"), NULL);
@@ -1124,6 +1142,7 @@ int main(int argc, char **argv) {
     g_test_add_func("/assist/cat-parcel-suffix", test_cat_parcel_suffix_and_deleted_cat);
     g_test_add_func("/assist/cat-learned-words", test_cat_learned_words);
     g_test_add_func("/assist/insights-report", test_ins_report);
+    g_test_add_func("/assist/insights-highlights", test_ins_highlights);
     g_test_add_func("/assist/insights-duplicate", test_ins_duplicate);
     g_test_add_func("/assist/insights-parcels-not-duplicates", test_ins_parcels_not_duplicates);
     g_test_add_func("/assist/insights-subscriptions-price-up", test_ins_subscriptions_and_price_up);

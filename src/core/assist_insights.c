@@ -29,6 +29,7 @@ void month_report_free(MonthReport *r) {
     if (!r) return;
     g_free(r->title);
     g_ptr_array_unref(r->lines);
+    if (r->highlights) g_ptr_array_unref(r->highlights);
     g_free(r->why);
     g_free(r);
 }
@@ -109,6 +110,7 @@ MonthReport *insights_report(const AppState *s, Day today, MoneyFmt money) {
     }
     Cents spent = sum(cur_exp), before = sum(prev_exp), income = sum(cur_inc);
     GPtrArray *lines = g_ptr_array_new_with_free_func(g_free);
+    const char *spent_line = NULL, *income_line = NULL, *pending_line = NULL, *receive_line = NULL, *late_line = NULL;
 
     if (spent == 0) g_ptr_array_add(lines, g_strdup_printf("Ainda não há despesas realizadas em %s.", br_month(ym)));
     else {
@@ -120,11 +122,11 @@ MonthReport *insights_report(const AppState *s, Day today, MoneyFmt money) {
             else if (c > 0) g_string_append_printf(l, " São %s a mais que no mesmo período de %s (%s).", PCT(c), br_month(prev), M(before));
             else g_string_append_printf(l, " São %s a menos que no mesmo período de %s (%s).", PCT(c), br_month(prev), M(before));
         }
-        g_ptr_array_add(lines, g_string_free(l, FALSE));
+        g_ptr_array_add(lines, (gpointer)(spent_line = g_string_free(l, FALSE)));
     }
     if (income > 0) {
-        if (income >= spent) g_ptr_array_add(lines, g_strdup_printf("Entraram %s; sobram %s até agora.", M(income), M(income - spent)));
-        else g_ptr_array_add(lines, g_strdup_printf("Entraram %s; as despesas já passam as receitas em %s.", M(income), M(spent - income)));
+        if (income >= spent) g_ptr_array_add(lines, (gpointer)(income_line = g_strdup_printf("Entraram %s; sobram %s até agora.", M(income), M(income - spent))));
+        else g_ptr_array_add(lines, (gpointer)(income_line = g_strdup_printf("Entraram %s; as despesas já passam as receitas em %s.", M(income), M(spent - income))));
     }
     if (spent > 0) {
         Groups g = groups_new();
@@ -141,15 +143,15 @@ MonthReport *insights_report(const AppState *s, Day today, MoneyFmt money) {
     }
     if (pending->len) {
         g_autofree char *pl = br_plural((int)pending->len, "conta", "contas");
-        g_ptr_array_add(lines, g_strdup_printf("Ainda faltam %s em %s a pagar até o fim do mês.", M(sum(pending)), pl));
+        g_ptr_array_add(lines, (gpointer)(pending_line = g_strdup_printf("Ainda faltam %s em %s a pagar até o fim do mês.", M(sum(pending)), pl)));
     }
     if (to_receive->len) {
         g_autofree char *pl = br_plural((int)to_receive->len, "lançamento", "lançamentos");
-        g_ptr_array_add(lines, g_strdup_printf("A receber neste mês: %s em %s.", M(sum(to_receive)), pl));
+        g_ptr_array_add(lines, (gpointer)(receive_line = g_strdup_printf("A receber neste mês: %s em %s.", M(sum(to_receive)), pl)));
     }
     if (late->len) {
         g_autofree char *pl = br_plural((int)late->len, "conta está", "contas estão");
-        g_ptr_array_add(lines, g_strdup_printf("%s em atraso (%s).", pl, M(sum(late))));
+        g_ptr_array_add(lines, (gpointer)(late_line = g_strdup_printf("%s em atraso (%s).", pl, M(sum(late)))));
     }
     if (day <= 7 && (pe > 0 || pi > 0))
         g_ptr_array_add(lines, g_strdup_printf("Fechamento de %s: receitas %s, despesas %s, saldo %s.", br_month(prev), M(pi), M(pe), M(pi - pe)));
@@ -158,6 +160,10 @@ MonthReport *insights_report(const AppState *s, Day today, MoneyFmt money) {
     g_autofree char *my = br_month_year(ym);
     r->title = g_strdup_printf("Resumo de %s", my);
     r->lines = lines;
+    r->highlights = g_ptr_array_new_with_free_func(g_free);
+    const char *prio[] = {late_line, pending_line, spent_line, receive_line, income_line};
+    for (guint i = 0; i < G_N_ELEMENTS(prio) && r->highlights->len < 2; i++)
+        if (prio[i]) g_ptr_array_add(r->highlights, g_strdup(prio[i]));
     r->why = g_strdup_printf(
         "Considera só lançamentos realizados (pagos ou recebidos) até hoje. Compras no cartão contam na data da compra; "
         "pagamentos de fatura não contam como despesa nova. A comparação usa os mesmos dias (1 a %d) do mês anterior, para ser justa.", day);

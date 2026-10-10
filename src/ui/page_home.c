@@ -1,12 +1,14 @@
 /* Finan+ — Copyright (C) 2026 Juscelino Be
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Início: saldo atual e previsto, receitas e despesas do mês, assistente, contas e cartões,
- * limites do mês, metas e próximos vencimentos. Em telas largas fica em três colunas.
+ * Início (enxuto, como no app Android e na versão web): saldo atual e previsto, receitas e despesas
+ * do mês com o que falta receber e pagar, assistente em 2 frases, vencimentos, contas e cartões,
+ * e limites e metas só quando existem (antes disso, "Comece por aqui"). Em telas largas, três colunas.
  */
 #include "pages.h"
 #include "widgets.h"
 #include "core/finance.h"
+#include "core/period.h"
 #include <math.h>
 #include <string.h>
 
@@ -19,8 +21,6 @@ static char *dec(double v, int places) {
     return s;
 }
 
-static void open_tx_income(gpointer u) { (void)u; editor_tx(KIND_INCOME, NULL); }
-static void open_tx_expense(gpointer u) { (void)u; editor_tx(KIND_EXPENSE, NULL); }
 static void open_goal_new(gpointer u) { (void)u; editor_goal(NULL); }
 static void open_goal(gpointer id) { editor_goal(id); }
 static void open_settings(gpointer u) { (void)u; app_show_page(PAGE_SETTINGS); }
@@ -38,11 +38,13 @@ static GtkWidget *stat_box_icon(const char *icon, const char *label, Cents v, co
 }
 #define stat_box(l, v, c) stat_box_icon(NULL, l, v, c)
 
-static GtkWidget *quick(const char *icon, const char *label, FinFn fn, const char *tip) {
-    GtkWidget *b = w_button(label, icon, "fin-quick", fn, NULL, NULL);
-    gtk_widget_set_hexpand(b, TRUE);
-    gtk_widget_set_tooltip_text(b, tip);
-    return b;
+/* "a receber R$ …" / "a pagar R$ …" embaixo de Receitas e Despesas do mês */
+static void stat_sub(GtkWidget *box, const char *label, Cents v, const char *cls) {
+    if (v <= 0) return;
+    GtkWidget *r = w_hbox(4);
+    w_add(r, w_label(label, "fin-muted caption"));
+    w_add(r, w_money(v, cls));
+    w_add(box, r);
 }
 
 static GtkWidget *hero(void) {
@@ -76,31 +78,31 @@ static GtkWidget *hero(void) {
     w_add(c, r1);
     GtkWidget *r2 = w_hbox(10);
     gtk_box_set_homogeneous(GTK_BOX(r2), TRUE);
-    w_add(r2, stat_box_icon("arrow-upward", "Receitas do mês", f.income, "fin-money-mid fin-green"));
-    w_add(r2, stat_box_icon("arrow-downward", "Despesas do mês", f.expense, "fin-money-mid fin-red"));
+    /* o que ainda falta neste mês: contas pendentes fora do cartão e faturas em aberto que vencem no mês */
+    Pending pend = period_month_pending(s, ym, APP->today);
+    GtkWidget *bi = stat_box_icon("arrow-upward", "Receitas do mês", f.income, "fin-money-mid fin-green");
+    stat_sub(bi, "a receber", pend.to_receive, "caption fin-green");
+    GtkWidget *be = stat_box_icon("arrow-downward", "Despesas do mês", f.expense, "fin-money-mid fin-red");
+    stat_sub(be, "a pagar", pend.to_pay, "caption fin-red");
+    w_add(r2, bi);
+    w_add(r2, be);
     w_add(c, r2);
 
-    GtkWidget *bar = w_level(f.income > 0 ? (double)f.expense / f.income : 0, NULL);
-    gtk_widget_set_margin_top(bar, 8);
-    w_add(c, bar);
-    double used = f.income > 0 ? f.expense * 100.0 / f.income : 0;
-    g_autofree char *u = dec(used, 1);
-    g_autofree char *msg = f.income > 0 ? g_strdup_printf("Neste mês você usou %s%% das receitas.", u) : g_strdup("Adicione seus primeiros lançamentos.");
-    w_add(c, w_label_wrap(msg, "fin-muted caption heading"));
+    /* uso das receitas: só quando já entrou alguma receita */
     if (f.income > 0) {
+        GtkWidget *bar = w_level((double)f.expense / f.income, NULL);
+        gtk_widget_set_margin_top(bar, 8);
+        w_add(c, bar);
+        double used = f.expense * 100.0 / f.income;
+        g_autofree char *u = dec(used, 1);
+        g_autofree char *msg = g_strdup_printf("Neste mês você usou %s%% das receitas.", u);
+        w_add(c, w_label_wrap(msg, "fin-muted caption heading"));
         g_autofree char *sv = dec(MAX(0.0, 100 - used), 0);
         g_autofree char *badge = g_strdup_printf("%s%% economizado", sv);
         GtkWidget *b = w_badge(badge, "accent");
         gtk_widget_set_halign(b, GTK_ALIGN_START);
         w_add(c, b);
     }
-    GtkWidget *q = w_hbox(9);
-    gtk_box_set_homogeneous(GTK_BOX(q), TRUE);
-    gtk_widget_set_margin_top(q, 8);
-    w_add(q, quick("add", "Receita", open_tx_income, "Nova receita (Ctrl+Shift+N)"));
-    w_add(q, quick("remove", "Despesa", open_tx_expense, "Nova despesa (Ctrl+N)"));
-    w_add(q, quick("flag", "Meta", open_goal_new, "Nova meta (Ctrl+M)"));
-    w_add(c, q);
     return c;
 }
 
@@ -142,6 +144,8 @@ GtkWidget *tip_item(const Insight *t, gboolean dismissible) {
 static void go_assist(gpointer u) { (void)u; app_show_page(PAGE_ASSIST); }
 static void go_ask(gpointer u) { (void)u; app_show_page(PAGE_ASSIST); page_assist_focus_question(); }
 
+/* assistente compacto: as 2 frases mais úteis do mês, a dica principal e um link só.
+ * O resumo completo, o "Por quê?" e as perguntas ficam na tela do Assistente. */
 static GtkWidget *assistant_card(void) {
     Prefs *pr = APP->prefs;
     if (!pr->assist_tips && !pr->assist_ask) return NULL;
@@ -153,39 +157,27 @@ static GtkWidget *assistant_card(void) {
     gtk_widget_set_hexpand(ebl, TRUE);
     w_add(eb, ebl);
     w_add(c, eb);
-    MonthReport *r = pr->assist_tips ? insights_report(APP->state, APP->today, app_money_fmt()) : NULL;
-    w_add(c, w_title(r ? r->title : "Pergunte sobre seus gastos"));
     int visible = 0;
-    if (r) {
-        for (guint i = 0; i < r->lines->len; i++) {
-            g_autofree char *l = g_strdup_printf("• %s", (char *)r->lines->pdata[i]);
+    if (pr->assist_tips) {
+        MonthReport *r = insights_report(APP->state, APP->today, app_money_fmt());
+        w_add(c, w_title(r->title));
+        for (guint i = 0; i < r->highlights->len; i++) {
+            g_autofree char *l = g_strdup_printf("• %s", (char *)r->highlights->pdata[i]);
             w_add(c, w_label_wrap(l, NULL));
         }
-        w_add(c, w_why(r->why));
+        month_report_free(r);
         g_autoptr(GPtrArray) tips = insights_tips(APP->state, APP->today, app_money_fmt());
         for (guint i = 0; i < tips->len; i++) {
             Insight *t = tips->pdata[i];
             if (prefs_tip_dismissed(pr, t->id)) continue;
-            if (visible < 2) w_add(c, tip_item(t, TRUE));
+            if (visible == 0) w_add(c, tip_item(t, TRUE));
             visible++;
         }
-        if (visible == 0 && APP->state->txs->len)
-            w_add(c, w_label_wrap("Nenhuma dica no momento: nada fora do padrão.", "fin-muted caption"));
-        month_report_free(r);
-    }
-    GtkWidget *row = w_hbox(8);
-    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
-    gtk_widget_set_margin_top(row, 4);
-    if (pr->assist_tips) {
-        g_autofree char *l = visible > 2 ? g_strdup_printf("Ver as %d dicas", visible) : g_strdup("Abrir assistente");
-        w_add(row, w_pill(l, go_assist, NULL, NULL));
-    }
-    if (pr->assist_ask) {
-        GtkWidget *p = w_pill("Perguntar", go_ask, NULL, NULL);
-        gtk_widget_set_tooltip_text(p, "Perguntar ao assistente (Ctrl+K)");
-        w_add(row, p);
-    }
-    w_add(c, row);
+    } else w_add(c, w_title("Pergunte sobre seus gastos"));
+    g_autofree char *l = !pr->assist_tips ? g_strdup("Perguntar") : visible > 1 ? g_strdup_printf("Ver as %d dicas", visible) : g_strdup("Abrir assistente");
+    GtkWidget *link = w_button(l, NULL, "flat fin-link", pr->assist_tips ? go_assist : go_ask, NULL, NULL);
+    gtk_widget_set_halign(link, GTK_ALIGN_START);
+    w_add(c, link);
     return c;
 }
 
@@ -195,7 +187,7 @@ static GtkWidget *patrimony(void) {
     const AppState *s = APP->state;
     GtkWidget *wrap = w_vbox(10);
     GtkWidget *head = w_hbox(8);
-    GtkWidget *h = w_section_head("Patrimônio", "Contas e cartões");
+    GtkWidget *h = w_title("Contas e cartões");
     gtk_widget_set_hexpand(h, TRUE);
     w_add(head, h);
     GtkWidget *g = w_pill("Gerenciar", open_settings, NULL, NULL);
@@ -208,7 +200,8 @@ static GtkWidget *patrimony(void) {
     gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(flow), 10);
     gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(flow), TRUE);
     gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(flow), 1);
-    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(flow), 6);
+    /* com uma conta só e nenhum cartão, ela ocupa a linha inteira */
+    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(flow), s->accounts->len + s->cards->len <= 1 ? 1 : 6);
     for (guint i = 0; i < s->accounts->len; i++) {
         Account *a = s->accounts->pdata[i];
         GtkWidget *c = w_card("fin-tight fin-flat");
@@ -260,13 +253,15 @@ static GtkWidget *limits_card(void) {
     Ym ym = day_ym(APP->today);
     GtkWidget *c = w_card(NULL);
     gtk_widget_set_valign(c, GTK_ALIGN_START);
-    w_add(c, w_section_head("Orçamento · inclui pendentes", "Limites do mês"));
-    if (!s->limits->len) {
-        w_add(c, w_label_wrap("Defina limites para acompanhar seu orçamento.", "fin-muted"));
-        GtkWidget *b = w_pill("＋ Definir limite", open_limit_new, NULL, NULL);
-        gtk_widget_set_halign(b, GTK_ALIGN_START);
-        w_add(c, b);
-    }
+    GtkWidget *head = w_hbox(8);
+    GtkWidget *h = w_title("Limites do mês");
+    gtk_widget_set_hexpand(h, TRUE);
+    w_add(head, h);
+    GtkWidget *nb = w_pill("＋ Novo", open_limit_new, NULL, NULL);
+    gtk_widget_set_tooltip_text(nb, "Novo limite mensal");
+    w_add(head, nb);
+    w_add(c, head);
+    w_add(c, w_label("Inclui o que ainda está pendente.", "fin-muted caption"));
     for (guint i = 0; i < s->limits->len; i++) {
         Limit *l = s->limits->pdata[i];
         Cents u = budget_usage(s, ym, l->category);
@@ -305,14 +300,14 @@ static GtkWidget *goals_card(void) {
     GtkWidget *c = w_card(NULL);
     gtk_widget_set_valign(c, GTK_ALIGN_START);
     GtkWidget *head = w_hbox(8);
-    GtkWidget *h = w_section_head("Objetivos", "Metas");
+    GtkWidget *h = w_title("Metas");
     gtk_widget_set_hexpand(h, TRUE);
     w_add(head, h);
-    GtkWidget *nb = w_pill("＋ Meta", open_goal_new, NULL, NULL);
+    GtkWidget *nb = w_pill("＋ Nova", open_goal_new, NULL, NULL);
+    gtk_widget_set_tooltip_text(nb, "Nova meta (Ctrl+M)");
     gtk_widget_set_valign(nb, GTK_ALIGN_END);
     w_add(head, nb);
     w_add(c, head);
-    if (!s->goals->len) w_add(c, w_label_wrap("Crie uma meta com “＋ Meta”: o Finan+ calcula quanto guardar por mês.", "fin-muted"));
     for (guint i = 0; i < s->goals->len; i++) {
         Goal *g = s->goals->pdata[i];
         GoalPlan p = goal_plan(g, APP->today);
@@ -356,6 +351,38 @@ static GtkWidget *goals_card(void) {
         w_add(c, btn);
         g_object_set_data_full(G_OBJECT(btn), "id", g_strdup(g->id), g_free);
     }
+    return c;
+}
+
+/* ---------------------------------------------------------------- comece por aqui */
+
+static GtkWidget *start_row(const char *icon, const char *title, const char *sub, FinFn fn) {
+    GtkWidget *btn = gtk_button_new();
+    gtk_widget_add_css_class(btn, "flat");
+    GtkWidget *r = w_hbox(12);
+    GtkWidget *ic = w_icon(icon, 22);
+    gtk_widget_add_css_class(ic, "fin-glyph");
+    w_add(r, ic);
+    GtkWidget *t = w_vbox(1);
+    gtk_widget_set_hexpand(t, TRUE);
+    w_add(t, w_label(title, "heading"));
+    w_add(t, w_label(sub, "fin-muted caption"));
+    w_add(r, t);
+    w_add(r, w_icon("chevron-right", 20));
+    gtk_button_set_child(GTK_BUTTON(btn), r);
+    g_signal_connect_swapped(btn, "clicked", G_CALLBACK(fn), NULL);
+    return btn;
+}
+
+/* atalhos para o que ainda não existe: cada linha some quando deixa de fazer sentido */
+static GtkWidget *start_card(void) {
+    const AppState *s = APP->state;
+    if (s->limits->len && s->goals->len) return NULL;
+    GtkWidget *c = w_card(NULL);
+    gtk_widget_set_valign(c, GTK_ALIGN_START);
+    w_add(c, w_title("Comece por aqui"));
+    if (!s->limits->len) w_add(c, start_row("attach-money", "Definir um limite mensal", "Acompanhe quanto gasta por categoria", open_limit_new));
+    if (!s->goals->len) w_add(c, start_row("flag", "Criar uma meta", "Junte para um objetivo com prazo", open_goal_new));
     return c;
 }
 
@@ -412,12 +439,20 @@ static GtkWidget *grid(int cols) {
 void page_home_refresh(void) {
     if (!body || !APP->state) return;
     w_clear(body);
+    const AppState *s = APP->state;
     GtkWidget *h = hero();
     GtkWidget *a = assistant_card();
     GtkWidget *pat = patrimony();
-    GtkWidget *lim = limits_card();
-    GtkWidget *goals = goals_card();
+    GtkWidget *lim = s->limits->len ? limits_card() : NULL;
+    GtkWidget *goals = s->goals->len ? goals_card() : NULL;
+    GtkWidget *start = start_card();
     GtkWidget *due = due_card();
+    /* o que vai embaixo: limites, metas e "Comece por aqui" (só os que existem) */
+    GtkWidget *bottom[3];
+    int nb = 0;
+    if (lim) bottom[nb++] = lim;
+    if (goals) bottom[nb++] = goals;
+    if (start) bottom[nb++] = start;
     GtkWidget *g = grid(3);
     /* coluna principal (saldo + vencimentos) ao lado do assistente: sem buracos entre os cartões */
     GtkWidget *main = w_vbox(18);
@@ -425,27 +460,30 @@ void page_home_refresh(void) {
     if (APP->layout != LAYOUT_NARROW) w_add(main, due);
     switch (APP->layout) {
     case LAYOUT_WIDE:
-        gtk_grid_attach(GTK_GRID(g), main, 0, 0, a ? 2 : 3, 1);
-        if (a) gtk_grid_attach(GTK_GRID(g), a, 2, 0, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), pat, 0, 1, 3, 1);
-        gtk_grid_attach(GTK_GRID(g), lim, 0, 2, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), goals, 1, 2, 2, 1);
+    case LAYOUT_MEDIUM: {
+        int cols = APP->layout == LAYOUT_WIDE ? 3 : 2;
+        gtk_grid_attach(GTK_GRID(g), main, 0, 0, a ? cols - 1 : cols, 1);
+        if (a) gtk_grid_attach(GTK_GRID(g), a, cols - 1, 0, 1, 1);
+        gtk_grid_attach(GTK_GRID(g), pat, 0, 1, cols, 1);
+        /* embaixo, lado a lado; o último ocupa o que sobra da linha */
+        int col = 0, row = 2;
+        for (int i = 0; i < nb; i++) {
+            int left = cols - col;
+            int span = i == nb - 1 ? left : 1;
+            if (cols == 3 && nb == 2 && i == 0) span = 1;
+            gtk_grid_attach(GTK_GRID(g), bottom[i], col, row, span, 1);
+            col += span;
+            if (col >= cols) { col = 0; row++; }
+        }
         break;
-    case LAYOUT_MEDIUM:
-        gtk_grid_attach(GTK_GRID(g), main, 0, 0, a ? 1 : 2, 1);
-        if (a) gtk_grid_attach(GTK_GRID(g), a, 1, 0, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), pat, 0, 1, 2, 1);
-        gtk_grid_attach(GTK_GRID(g), lim, 0, 2, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), goals, 1, 2, 1, 1);
-        break;
+    }
     default: {
         int r = 0;
         gtk_grid_attach(GTK_GRID(g), main, 0, r++, 1, 1);
         if (a) gtk_grid_attach(GTK_GRID(g), a, 0, r++, 1, 1);
         gtk_grid_attach(GTK_GRID(g), due, 0, r++, 1, 1);
         gtk_grid_attach(GTK_GRID(g), pat, 0, r++, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), lim, 0, r++, 1, 1);
-        gtk_grid_attach(GTK_GRID(g), goals, 0, r++, 1, 1);
+        for (int i = 0; i < nb; i++) gtk_grid_attach(GTK_GRID(g), bottom[i], 0, r++, 1, 1);
     }
     }
     w_add(body, g);
