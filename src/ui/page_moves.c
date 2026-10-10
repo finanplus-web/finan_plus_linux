@@ -24,7 +24,8 @@ static struct {
     GtkWidget *list, *more, *empty;
     gboolean syncing;
     guint shown;
-    GPtrArray *items; /* Tx* filtrados (do estado) */
+    GPtrArray *items; /* Tx* filtrados (do estado e previstos) */
+    GPtrArray *projected; /* recorrências previstas do período (donas dos Tx* previstos em items) */
     /* "Período e filtros" aberto (NULL se fechado) */
     AdwDialog *dlg;
     GtkWidget *dlg_from, *dlg_to, *dlg_paid;
@@ -34,6 +35,7 @@ static struct {
 
 const char *tx_status(const Tx *t, gboolean *late) {
     if (late) *late = FALSE;
+    if (tx_is_projected(t)) return "Previsto · recorrência";
     if (!tx_is_flow(t)) return "Pag. fatura";
     if (tx_is_card(t)) return "Cartão";
     if (t->paid) return t->kind == KIND_INCOME ? "Recebido" : "Pago";
@@ -93,7 +95,14 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
     gtk_widget_set_size_request(vl, wide ? 140 : 110, -1);
     gtk_label_set_ellipsize(GTK_LABEL(vl), PANGO_ELLIPSIZE_NONE);
     w_add(row, vl);
-    if (!ops_can_toggle_paid(t)) {
+    if (tx_is_projected(t)) {
+        /* recorrência prevista (mês que ainda não chegou): não existe nos dados; abrir leva à recorrência */
+        GtkWidget *ic = w_icon("repeat", 20);
+        gtk_widget_set_size_request(ic, 34, -1);
+        gtk_widget_set_tooltip_text(ic, "Previsto: o lançamento é criado quando o mês chegar");
+        w_add(row, ic);
+        g_object_set_data_full(G_OBJECT(row), "rec", g_strdup(t->recurring_id), g_free);
+    } else if (!ops_can_toggle_paid(t)) {
         /* compra no cartão ou pagamento de fatura: não alterna pago/pendente */
         GtkWidget *ic = w_icon(tx_is_card(t) ? "credit-card" : "check", 20);
         gtk_widget_set_size_request(ic, 34, -1);
@@ -114,6 +123,15 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
 }
 
 GtkWidget *tx_row_new(const Tx *t) { return tx_row_full(t, TRUE); }
+
+/* abre o que a linha representa: o lançamento ou, se for previsto, a recorrência */
+void tx_row_activate(GtkWidget *row) {
+    const char *rec = g_object_get_data(G_OBJECT(row), "rec");
+    if (rec) { editor_recurring(rec); return; }
+    const char *id = g_object_get_data(G_OBJECT(row), "id");
+    Tx *t = id ? app_tx(APP->state, id) : NULL;
+    if (t) editor_tx(t->kind, t->id);
+}
 
 /* ---------------------------------------------------------------- filtros */
 
@@ -407,6 +425,15 @@ static void rebuild_list(gboolean keep_scroll) {
         Tx *t = APP->state->txs->pdata[i];
         if (match(t, q)) g_ptr_array_add(M.items, t);
     }
+    /* recorrências previstas dos meses que ainda não chegaram (só com fim de período; não são gravadas) */
+    if (M.projected) g_ptr_array_unref(M.projected);
+    const Filters *pf = &APP->filters;
+    M.projected = pf->to != DAY_NONE ? projection_between(APP->state, pf->from != DAY_NONE ? pf->from : APP->today, pf->to, APP->today)
+                                     : g_ptr_array_new();
+    for (guint i = 0; i < M.projected->len; i++) {
+        Tx *t = M.projected->pdata[i];
+        if (match(t, q)) g_ptr_array_add(M.items, t);
+    }
     g_ptr_array_sort(M.items, cmp_desc_date);
     gtk_list_box_remove_all(GTK_LIST_BOX(M.list));
     M.shown = 0;
@@ -420,9 +447,7 @@ static void rebuild_list(gboolean keep_scroll) {
 
 static void on_activated(GtkListBox *box, GtkListBoxRow *row, gpointer u) {
     (void)box; (void)u;
-    const char *id = g_object_get_data(G_OBJECT(gtk_list_box_row_get_child(row)), "id");
-    Tx *t = id ? app_tx(APP->state, id) : NULL;
-    if (t) editor_tx(t->kind, t->id);
+    tx_row_activate(gtk_list_box_row_get_child(row));
 }
 
 static void toggle_panel(GtkToggleButton *b, gpointer u) {

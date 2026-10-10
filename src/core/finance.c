@@ -94,6 +94,36 @@ Cents current_balance(const AppState *s) {
     return n;
 }
 
+static gint cmp_projected(gconstpointer a, gconstpointer b) {
+    const Tx *x = *(Tx *const *)a, *y = *(Tx *const *)b;
+    if (x->date != y->date) return x->date < y->date ? -1 : 1;
+    return strcmp(x->id, y->id);
+}
+
+GPtrArray *projection_between(const AppState *s, Day from, Day to, Day today) {
+    GPtrArray *out = g_ptr_array_new_with_free_func((GDestroyNotify)tx_free);
+    if (from == DAY_NONE || to == DAY_NONE || to < from) return out;
+    Ym cur = day_ym(today);
+    for (guint i = 0; i < s->recurring->len; i++) {
+        const Recurring *r = s->recurring->pdata[i];
+        if (!r->active) continue;
+        Ym m = MAX(cur + 1, day_ym(from));
+        if (r->last != YM_NONE && r->last + 1 > m) m = r->last + 1;
+        if (r->start != DAY_NONE && day_ym(r->start) > m) m = day_ym(r->start);
+        for (; m <= day_ym(to); m++) {
+            Day date = ym_day_clamped(m, r->day);
+            if (date < from || date > to || (r->start != DAY_NONE && date < r->start)) continue;
+            char ymb[8];
+            g_autofree char *id = g_strdup_printf("%s%s:%s", PROJECTED_PREFIX, r->id, ym_iso(m, ymb));
+            Tx *t = tx_new(id, r->kind, r->value, date, r->desc, r->category, r->card_id[0] != '\0', r->account_id, r->card_id);
+            tx_set_str(&t->recurring_id, r->id);
+            g_ptr_array_add(out, t);
+        }
+    }
+    g_ptr_array_sort(out, cmp_projected);
+    return out;
+}
+
 Cents future_balance(const AppState *s, Day until, Day today) {
     Cents c = current_balance(s);
     for (guint i = 0; i < s->txs->len; i++) {
@@ -109,6 +139,12 @@ Cents future_balance(const AppState *s, Day until, Day today) {
             if (invoice_open(v) > 0 && v->due <= until) c -= invoice_open(v);
         }
         card_status_clear(&st);
+    }
+    /* recorrências previstas até [until] (só nos meses que ainda não chegaram; fora do cartão) */
+    g_autoptr(GPtrArray) prev = projection_between(s, today, until, today);
+    for (guint i = 0; i < prev->len; i++) {
+        const Tx *t = prev->pdata[i];
+        if (!tx_is_card(t)) c += t->kind == KIND_INCOME ? t->value : -t->value;
     }
     return c;
 }

@@ -129,7 +129,7 @@ void ops_delete_tx(AppState *s, const char *id, gboolean with_later) {
 
 /* Compra no cartão e pagamento de fatura não alternam pago/pendente: desmarcar um pagamento de fatura reabria
  * a fatura e deixava o pagamento pendente, descontando o mesmo valor duas vezes (igual ao Android 1.1.1). */
-gboolean ops_can_toggle_paid(const Tx *t) { return t && !tx_is_card(t) && tx_is_flow(t); }
+gboolean ops_can_toggle_paid(const Tx *t) { return t && !tx_is_card(t) && tx_is_flow(t) && !tx_is_projected(t); }
 
 void ops_toggle_paid(AppState *s, const char *id) {
     Tx *t = app_tx(s, id);

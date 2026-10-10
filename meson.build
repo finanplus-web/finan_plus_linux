@@ -1,7 +1,7 @@
 # Finan+ — Copyright (C) 2026 Juscelino Be
 # SPDX-License-Identifier: GPL-3.0-or-later
 project('finan-plus', 'c',
-  version: '1.2.0',
+  version: '1.2.1',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 0.63',
   default_options: ['c_std=gnu11', 'warning_level=2', 'buildtype=release', 'b_ndebug=if-release'])
@@ -65,7 +65,7 @@ endforeach
 install_data('data/icons/app/com.finanplus.FinanPlus.svg', install_dir: datadir / 'icons/hicolor/scalable/apps')
 install_data('data/icons/app/com.finanplus.FinanPlus-symbolic.svg', install_dir: datadir / 'icons/hicolor/symbolic/apps')
 install_data('data/dicionario.txt', install_dir: datadir / 'finan-plus')
-install_data('LICENSE', 'README.md', 'FUNCIONALIDADES.md', 'ASSISTENTE.md', 'CHANGELOG.md', install_dir: datadir / 'doc/finan-plus')
+install_data('LICENSE', 'README.md', 'FUNCIONALIDADES.md', 'ASSISTENTE.md', 'RECORRENCIAS.md', 'CHANGELOG.md', install_dir: datadir / 'doc/finan-plus')
 install_data('third_party/material-symbols/LICENSE', install_dir: datadir / 'doc/finan-plus', rename: 'LICENSE-icones-Apache-2.0')
 install_man('data/finan-plus.1')
 

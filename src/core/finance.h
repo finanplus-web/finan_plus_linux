@@ -67,6 +67,14 @@ Cents account_balance(const AppState *s, const Account *a);
 Cents current_balance(const AppState *s);
 Cents future_balance(const AppState *s, Day until, Day today);
 
+/* ---- recorrências previstas (RECORRENCIAS.md) ----
+ * Próximas ocorrências de cada recorrência ativa com data entre from e to, só em meses depois do mês de
+ * [today] e do último mês já gerado, nunca antes do início. Não são gravadas: o lançamento real continua
+ * sendo criado quando o mês chega. id "prev:<recorrência>:<AAAA-MM>". GPtrArray de Tx* (donos), por data. */
+#define PROJECTED_PREFIX "prev:"
+GPtrArray *projection_between(const AppState *s, Day from, Day to, Day today);
+#define tx_is_projected(t) (g_str_has_prefix((t)->id, PROJECTED_PREFIX))
+
 /* ---- recorrências: gera até o mês de [today]; devolve quantos lançamentos foram criados ---- */
 int generate_recurring(AppState *s, Day today);
 

@@ -14,7 +14,7 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 
 - Lista completa do que o app faz: [FUNCIONALIDADES.md](FUNCIONALIDADES.md)
 - Como o assistente decide cada coisa: [ASSISTENTE.md](ASSISTENTE.md)
-- Calendário de lançamentos: [CALENDARIO.md](CALENDARIO.md) · Simulador "E se…?": [SIMULADOR.md](SIMULADOR.md)
+- Calendário de lançamentos: [CALENDARIO.md](CALENDARIO.md) · Simulador "E se…?": [SIMULADOR.md](SIMULADOR.md) · Recorrências previstas: [RECORRENCIAS.md](RECORRENCIAS.md)
 - O que foi feito nesta versão: [CHANGELOG.md](CHANGELOG.md)
 
 **Baixar:** [última versão (.deb)](https://github.com/finanplus-web/finan_plus_linux/releases/latest) · **Finan+ web (PWA):** [usar no navegador](https://finanplus-web.github.io/finan_plus/) ([código-fonte](https://github.com/finanplus-web/finan_plus))
