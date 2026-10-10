@@ -33,7 +33,8 @@ resources = gnome.compile_resources('finan-resources', 'data/finan-plus.gresourc
 core_src = files(
   'src/core/date.c', 'src/core/model.c', 'src/core/money.c', 'src/core/finance.c', 'src/core/ops.c',
   'src/core/backup.c', 'src/core/assist_text.c', 'src/core/assist_dict.c', 'src/core/assist_categorizer.c',
-  'src/core/assist_insights.c', 'src/core/assist_ask.c', 'src/core/report.c', 'src/core/store.c', 'src/core/prefs.c')
+  'src/core/assist_insights.c', 'src/core/assist_ask.c', 'src/core/report.c', 'src/core/store.c', 'src/core/prefs.c',
+  'src/core/period.c', 'src/core/simulator.c')
 
 # núcleo sem interface (testado separadamente)
 core_lib = static_library('financore', core_src,
@@ -73,6 +74,8 @@ test_core = executable('test-core', 'tests/test_core.c',
   dependencies: [core_dep],
   c_args: ['-DDICT_PATH="@0@"'.format(meson.current_source_dir() / 'data/dicionario.txt')])
 test('núcleo (60 casos do app Android)', test_core, env: ['FINAN_PLUS_NO_KEYRING=1'])
+test_period = executable('test-period', 'tests/test_period.c', dependencies: [core_dep])
+test('período, calendário e simulador (casos do Android 1.4.0)', test_period, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_store = executable('test-store', 'tests/test_store.c', dependencies: [core_dep])
 test('armazenamento e PIN', test_store, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_pdf = executable('test-pdf', 'tests/test_pdf.c', 'src/ui/pdf_render.c', 'src/ui/theme.c',
