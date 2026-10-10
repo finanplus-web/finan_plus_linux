@@ -303,8 +303,11 @@ static void tx_delete(GtkButton *b, TxEd *e) {
     dlg_confirm("Excluir lançamento", "Excluir este lançamento?", "Excluir", TRUE, tx_delete_confirmed, d, del_ctx_free);
 }
 
-void editor_tx(Kind kind, const char *id) {
+void editor_tx(Kind kind, const char *id) { editor_tx_on(kind, id ? DAY_NONE : APP->today, id); }
+
+void editor_tx_on(Kind kind, Day on, const char *id) {
     const AppState *s = APP->state;
+    if (on == DAY_NONE) on = APP->today;
     Tx *tx = id ? app_tx(s, id) : NULL;
     TxEd *e = g_new0(TxEd, 1);
     e->id = tx ? g_strdup(tx->id) : NULL;
@@ -384,10 +387,11 @@ void editor_tx(Kind kind, const char *id) {
     g_autoptr(GPtrArray) an = account_names();
     e->account = row_combo("Conta", (const char *const *)an->pdata, (int)an->len, tx ? index_of_account(tx->account_id) : 0);
     gadd(g2, e->account);
-    e->date = row_date("Data", tx ? tx->date : APP->today, FALSE);
+    e->date = row_date("Data", tx ? tx->date : on, FALSE);
     gadd(g2, e->date);
     if (!e->payment) {
-        e->paid = row_switch("Despesa já paga", NULL, tx ? tx->paid : TRUE);
+        /* numa data futura (lançado pelo calendário), o lançamento novo começa como pendente */
+        e->paid = row_switch("Despesa já paga", NULL, tx ? tx->paid : on <= APP->today);
         gadd(g2, e->paid);
     }
     if (!tx) {

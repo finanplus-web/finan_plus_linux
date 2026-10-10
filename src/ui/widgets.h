@@ -47,6 +47,8 @@ GtkWidget *w_category_glyph(const char *category);
 /* ---- botões ---- */
 GtkWidget *w_button(const char *label, const char *icon, const char *classes, FinFn fn, gpointer data, GDestroyNotify destroy);
 GtkWidget *w_pill(const char *label, FinFn fn, gpointer data, GDestroyNotify destroy);
+/* link "Texto ›" (sem fundo), para "Abrir assistente", "Ver no calendário"… */
+GtkWidget *w_more_link(const char *label, FinFn fn, gpointer data, GDestroyNotify destroy);
 /* botão "Por quê?" que mostra a explicação logo abaixo */
 GtkWidget *w_why(const char *why);
 /* Cartão que abre e fecha com o botão + / − (o estado fica guardado por [key] durante a sessão). */

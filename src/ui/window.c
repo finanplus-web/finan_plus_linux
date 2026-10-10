@@ -123,6 +123,17 @@ void app_open_moves(const char *query, Day from, Day to, int kind) {
     app_show_page(PAGE_MOVES);
 }
 
+void app_open_moves_pending(void) {
+    Filters *f = &APP->filters;
+    g_free(f->query);
+    f->query = g_strdup("");
+    f->kind = -1;
+    f->paid = 0;
+    app_refresh_page(PAGE_MOVES);
+    app_refresh_page(PAGE_REPORTS);
+    app_show_page(PAGE_MOVES);
+}
+
 static void on_row_selected(GtkListBox *box, GtkListBoxRow *row, gpointer u) {
     (void)box; (void)u;
     if (!row) return;
@@ -521,6 +532,9 @@ void app_activate(GtkApplication *gapp) {
     APP->filters.query = g_strdup("");
     filters_this_month(&APP->filters);
     APP->layout = LAYOUT_WIDE;
+    APP->moves_view = MOVES_LIST;
+    APP->cal_ym = YM_NONE;
+    APP->cal_day = DAY_NONE;
     APP->files = g_cancellable_new();
 
     gtk_icon_theme_add_resource_path(gtk_icon_theme_get_for_display(gdk_display_get_default()), "/com/finanplus/FinanPlus/icons");
@@ -567,6 +581,9 @@ void app_activate(GtkApplication *gapp) {
     /* FINAN_PLUS_START_PAGE=0..4 abre direto numa seção (usado para capturas de tela da documentação) */
     const char *sp = g_getenv("FINAN_PLUS_START_PAGE");
     if (sp && *sp) app_show_page((PageId)CLAMP(atoi(sp), 0, PAGE_COUNT - 1));
+    /* FINAN_PLUS_START_VIEW=calendario abre Lançamentos no calendário (também só para capturas) */
+    const char *sv = g_getenv("FINAN_PLUS_START_VIEW");
+    if (sv && !strcmp(sv, "calendario")) APP->moves_view = MOVES_CALENDAR;
     app_refresh();
     gtk_window_present(GTK_WINDOW(win));
     W.timer = g_timeout_add_seconds(20, tick, NULL);

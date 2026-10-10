@@ -1,24 +1,33 @@
 /* Finan+ — Copyright (C) 2026 Juscelino Be
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Lançamentos: painel de período, filtros e totais à esquerda; lista à direita.
- * Em janelas estreitas o painel fica acima da lista e pode ser recolhido.
+ * Lançamentos: chave Lista | Calendário no alto.
+ * Lista: ‹ mês › com "Período e filtros", busca, filtros de um toque (Todos, Receitas, Despesas,
+ * Pendentes) e o resumo do período à esquerda; os lançamentos agrupados por dia, com o saldo do dia,
+ * à direita. Em janelas estreitas o painel fica acima da lista e pode ser recolhido.
+ * Calendário: page_calendar.c.
  */
 #include "pages.h"
 #include "widgets.h"
 #include "core/finance.h"
+#include "core/period.h"
 #include <string.h>
 
 #define PAGE_SIZE 300
 
 static struct {
-    GtkWidget *root, *left, *panel_rev, *panel_toggle, *panel_sw, *list_sw;
-    GtkWidget *from, *to, *search, *kind, *paid;
+    GtkWidget *root, *stack, *view_list, *view_cal;
+    GtkWidget *body, *left, *panel_rev, *panel_toggle, *panel_sw, *list_sw;
+    GtkWidget *period_label, *tune, *search;
+    GtkWidget *chip_all, *chip_inc, *chip_exp, *chip_pend;
     GtkWidget *totals; /* recalculado */
-    GtkWidget *list, *count, *more, *empty;
+    GtkWidget *list, *more, *empty;
     gboolean syncing;
     guint shown;
     GPtrArray *items; /* Tx* filtrados (do estado) */
+    /* "Período e filtros" aberto (NULL se fechado) */
+    AdwDialog *dlg;
+    GtkWidget *dlg_from, *dlg_to, *dlg_paid;
 } M;
 
 /* ---------------------------------------------------------------- linha de lançamento */
@@ -42,7 +51,8 @@ static void toggle_paid(gpointer id) {
     app_toast(paid ? (inc ? "Marcado como recebido" : "Marcado como pago") : (inc ? "Marcado como a receber" : "Marcado como a pagar"));
 }
 
-GtkWidget *tx_row_new(const Tx *t) {
+/* Linha de lançamento. [with_date]: FALSE quando o dia já aparece no título do grupo (lista por dia e calendário). */
+GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
     const AppState *s = APP->state;
     gboolean wide = APP->layout == LAYOUT_WIDE;
     gboolean late;
@@ -61,15 +71,17 @@ GtkWidget *tx_row_new(const Tx *t) {
     w_add(texts, w_label(l2, "fin-muted caption"));
     char d[11];
     if (!wide) {
-        /* duas linhas fixas: data e situação nunca são cortadas, mesmo com nomes longos */
-        g_autofree char *l3 = g_strdup_printf("%s · %s", day_br(t->date, d), status);
+        /* data e situação numa linha própria: nunca são cortadas, mesmo com nomes longos */
+        g_autofree char *l3 = with_date ? g_strdup_printf("%s · %s", day_br(t->date, d), status) : g_strdup(status);
         w_add(texts, w_label(l3, late ? "fin-late caption" : "fin-muted caption"));
     }
     w_add(row, texts);
     if (wide) {
-        GtkWidget *dl = w_label(day_br(t->date, d), "fin-muted");
-        gtk_widget_set_size_request(dl, 96, -1);
-        w_add(row, dl);
+        if (with_date) {
+            GtkWidget *dl = w_label(day_br(t->date, d), "fin-muted");
+            gtk_widget_set_size_request(dl, 96, -1);
+            w_add(row, dl);
+        }
         GtkWidget *sl = w_label(status, late ? "fin-late" : "fin-muted");
         gtk_widget_set_size_request(sl, 100, -1);
         w_add(row, sl);
@@ -101,6 +113,8 @@ GtkWidget *tx_row_new(const Tx *t) {
     return row;
 }
 
+GtkWidget *tx_row_new(const Tx *t) { return tx_row_full(t, TRUE); }
+
 /* ---------------------------------------------------------------- filtros */
 
 static gboolean match(const Tx *t, const char *q) {
@@ -124,147 +138,258 @@ static gint cmp_desc_date(gconstpointer a, gconstpointer b) {
     return strcmp(y->id, x->id);
 }
 
-static void filters_changed(gpointer u);
+static void rebuild_list(gboolean keep_scroll);
 
-static void read_inputs(void) {
-    Filters *f = &APP->filters;
-    Day d;
-    if (date_field_get(M.from, &d)) f->from = d;
-    if (date_field_get(M.to, &d)) f->to = d;
-    g_free(f->query);
-    f->query = g_strdup(gtk_editable_get_text(GTK_EDITABLE(M.search)));
-    guint k = gtk_drop_down_get_selected(GTK_DROP_DOWN(M.kind));
-    f->kind = k == 1 ? KIND_INCOME : k == 2 ? KIND_EXPENSE : -1;
-    guint p = gtk_drop_down_get_selected(GTK_DROP_DOWN(M.paid));
-    f->paid = p == 1 ? 1 : p == 2 ? 0 : -1;
+/* tudo que muda o período ou os filtros passa por aqui (Relatórios usam o mesmo período) */
+static void filters_changed(void) {
+    if (M.syncing) return;
+    rebuild_list(FALSE);
+    app_refresh_page(PAGE_REPORTS);
 }
 
-static void write_inputs(void) {
+/* período livre ou "Realizados" ligado: o botão "Período e filtros" fica destacado */
+static gboolean filters_custom(void) {
+    const Filters *f = &APP->filters;
+    return !period_full_month(f->from, f->to, NULL) || f->paid == 1;
+}
+
+static void sync_controls(void) {
     const Filters *f = &APP->filters;
     M.syncing = TRUE;
-    Day cur;
-    if (!date_field_get(M.from, &cur) || cur != f->from) date_field_set(M.from, f->from);
-    if (!date_field_get(M.to, &cur) || cur != f->to) date_field_set(M.to, f->to);
+    g_autofree char *label = period_label(f->from, f->to);
+    gtk_label_set_text(GTK_LABEL(M.period_label), label);
+    if (filters_custom()) gtk_widget_add_css_class(M.tune, "on");
+    else gtk_widget_remove_css_class(M.tune, "on");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(M.chip_all), f->kind < 0 && f->paid < 0);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(M.chip_inc), f->kind == KIND_INCOME);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(M.chip_exp), f->kind == KIND_EXPENSE);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(M.chip_pend), f->paid == 0);
     if (strcmp(gtk_editable_get_text(GTK_EDITABLE(M.search)), f->query) != 0) gtk_editable_set_text(GTK_EDITABLE(M.search), f->query);
-    gtk_drop_down_set_selected(GTK_DROP_DOWN(M.kind), f->kind == KIND_INCOME ? 1 : f->kind == KIND_EXPENSE ? 2 : 0);
-    gtk_drop_down_set_selected(GTK_DROP_DOWN(M.paid), f->paid == 1 ? 1 : f->paid == 0 ? 2 : 0);
+    if (M.dlg) {
+        Day cur;
+        if (!date_field_get(M.dlg_from, &cur) || cur != f->from) date_field_set(M.dlg_from, f->from);
+        if (!date_field_get(M.dlg_to, &cur) || cur != f->to) date_field_set(M.dlg_to, f->to);
+        adw_combo_row_set_selected(ADW_COMBO_ROW(M.dlg_paid), f->paid == 1 ? 1 : f->paid == 0 ? 2 : 0);
+    }
     M.syncing = FALSE;
 }
 
-static void preset_month(gpointer u) { (void)u; filters_this_month(&APP->filters); write_inputs(); filters_changed(NULL); }
-static void preset_30(gpointer u) {
-    (void)u;
-    APP->filters.to = APP->today;
-    APP->filters.from = APP->today - 29;
-    write_inputs();
-    filters_changed(NULL);
+static void shift(gpointer delta) {
+    Filters *f = &APP->filters;
+    period_shift(f->from, f->to, GPOINTER_TO_INT(delta), APP->today, &f->from, &f->to);
+    sync_controls();
+    filters_changed();
 }
-static void preset_all(gpointer u) {
-    (void)u;
-    Day a = DAY_NONE, b = DAY_NONE;
-    for (guint i = 0; i < APP->state->txs->len; i++) {
-        Day d = ((Tx *)APP->state->txs->pdata[i])->date;
-        if (a == DAY_NONE || d < a) a = d;
-        if (b == DAY_NONE || d > b) b = d;
+
+/* Todos / Receitas / Despesas / Pendentes: Receitas e Despesas combinam com Pendentes */
+static void on_chip(GtkToggleButton *b, gpointer which) {
+    if (M.syncing) return;
+    Filters *f = &APP->filters;
+    int w = GPOINTER_TO_INT(which);
+    if (w == 0) { f->kind = -1; f->paid = -1; }
+    else if (w == 3) f->paid = f->paid == 0 ? -1 : 0;
+    else {
+        int k = w == 1 ? KIND_INCOME : KIND_EXPENSE;
+        f->kind = f->kind == k ? -1 : k;
     }
-    APP->filters.from = a;
-    APP->filters.to = b;
-    write_inputs();
-    filters_changed(NULL);
+    (void)b;
+    sync_controls();
+    filters_changed();
 }
 
-/* ---------------------------------------------------------------- totais */
+static void on_search(GtkSearchEntry *e, gpointer u) {
+    (void)u;
+    if (M.syncing) return;
+    g_free(APP->filters.query);
+    APP->filters.query = g_strdup(gtk_editable_get_text(GTK_EDITABLE(e)));
+    filters_changed();
+}
 
-static GtkWidget *compare_bar(const char *label, double frac, const char *variant) {
-    GtkWidget *r = w_hbox(8);
-    GtkWidget *l = w_label(label, "caption");
-    gtk_widget_set_size_request(l, 72, -1);
-    w_add(r, l);
-    w_add(r, w_level(frac, variant));
-    char pct[16];
-    g_snprintf(pct, sizeof pct, "%d%%", (int)(frac * 100));
-    GtkWidget *p = w_label(app_hidden() ? "••" : pct, "caption heading");
-    gtk_widget_set_size_request(p, 40, -1);
-    gtk_label_set_xalign(GTK_LABEL(p), 1);
-    w_add(r, p);
-    return r;
+/* ---------------------------------------------------------------- folha "Período e filtros" */
+
+static void preset(gpointer key) {
+    Filters *f = &APP->filters;
+    const char *k = key;
+    if (!strcmp(k, "mes")) filters_this_month(f);
+    else if (!strcmp(k, "30")) { f->to = APP->today; f->from = APP->today - 29; }
+    else {
+        Day a = DAY_NONE, b = DAY_NONE;
+        for (guint i = 0; i < APP->state->txs->len; i++) {
+            Day d = ((Tx *)APP->state->txs->pdata[i])->date;
+            if (a == DAY_NONE || d < a) a = d;
+            if (b == DAY_NONE || d > b) b = d;
+        }
+        f->from = a;
+        f->to = b;
+    }
+    sync_controls();
+    filters_changed();
+}
+
+static void dlg_dates_changed(gpointer u) {
+    (void)u;
+    if (M.syncing || !M.dlg) return;
+    Day d;
+    if (date_field_get(M.dlg_from, &d)) APP->filters.from = d;
+    if (date_field_get(M.dlg_to, &d)) APP->filters.to = d;
+    sync_controls();
+    filters_changed();
+}
+
+static void dlg_paid_changed(GObject *o, GParamSpec *p, gpointer u) {
+    (void)o; (void)p; (void)u;
+    if (M.syncing || !M.dlg) return;
+    guint sel = adw_combo_row_get_selected(ADW_COMBO_ROW(M.dlg_paid));
+    APP->filters.paid = sel == 1 ? 1 : sel == 2 ? 0 : -1;
+    sync_controls();
+    filters_changed();
+}
+
+static void dlg_closed(AdwDialog *d, gpointer u) {
+    (void)d; (void)u;
+    M.dlg = NULL;
+    M.dlg_from = M.dlg_to = M.dlg_paid = NULL;
+}
+
+static void open_filters(gpointer u) {
+    (void)u;
+    if (M.dlg) return;
+    AdwDialog *d = M.dlg = adw_dialog_new();
+    adw_dialog_set_title(d, "Período e filtros");
+    adw_dialog_set_content_width(d, 460);
+    GtkWidget *tv = adw_toolbar_view_new();
+    GtkWidget *hb = adw_header_bar_new();
+    adw_header_bar_set_show_end_title_buttons(ADW_HEADER_BAR(hb), FALSE);
+    GtkWidget *done = gtk_button_new_with_label("Pronto");
+    gtk_widget_add_css_class(done, "suggested-action");
+    g_signal_connect_swapped(done, "clicked", G_CALLBACK(adw_dialog_close), d);
+    adw_header_bar_pack_end(ADW_HEADER_BAR(hb), done);
+    adw_toolbar_view_add_top_bar(ADW_TOOLBAR_VIEW(tv), hb);
+    GtkWidget *c = w_vbox(14);
+    gtk_widget_set_margin_start(c, 18);
+    gtk_widget_set_margin_end(c, 18);
+    gtk_widget_set_margin_top(c, 8);
+    gtk_widget_set_margin_bottom(c, 18);
+    w_add(c, w_label_wrap("O período também vale para Relatórios. As mudanças valem na hora.", "fin-muted"));
+    GtkWidget *dates = w_hbox(10);
+    gtk_box_set_homogeneous(GTK_BOX(dates), TRUE);
+    M.dlg_from = date_field("De", APP->filters.from, dlg_dates_changed, NULL);
+    M.dlg_to = date_field("Até", APP->filters.to, dlg_dates_changed, NULL);
+    GtkWidget *a = w_vbox(4), *b = w_vbox(4);
+    w_add(a, w_label("De", "fin-muted caption"));
+    w_add(a, M.dlg_from);
+    w_add(b, w_label("Até", "fin-muted caption"));
+    w_add(b, M.dlg_to);
+    w_add(dates, a);
+    w_add(dates, b);
+    w_add(c, dates);
+    GtkWidget *pills = w_hbox(6);
+    gtk_box_set_homogeneous(GTK_BOX(pills), TRUE);
+    w_add(pills, w_pill("Este mês", preset, "mes", NULL));
+    w_add(pills, w_pill("30 dias", preset, "30", NULL));
+    w_add(pills, w_pill("Tudo", preset, "tudo", NULL));
+    w_add(c, pills);
+    GtkWidget *g = adw_preferences_group_new();
+    static const char *const st[] = {"Todos", "Realizados", "Pendentes"};
+    M.dlg_paid = row_combo("Situação", st, 3, APP->filters.paid == 1 ? 1 : APP->filters.paid == 0 ? 2 : 0);
+    g_signal_connect(M.dlg_paid, "notify::selected", G_CALLBACK(dlg_paid_changed), NULL);
+    adw_preferences_group_add(ADW_PREFERENCES_GROUP(g), M.dlg_paid);
+    w_add(c, g);
+    adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(tv), c);
+    adw_dialog_set_child(d, tv);
+    g_signal_connect(d, "closed", G_CALLBACK(dlg_closed), NULL);
+    adw_dialog_present(d, GTK_WIDGET(APP->window));
+}
+
+/* ---------------------------------------------------------------- resumo do período */
+
+static GtkWidget *sum_col(const char *label, Cents v, const char *cls, const char *sub_label, Cents sub, const char *sub_cls, gboolean show_sub) {
+    GtkWidget *b = w_vbox(3);
+    gtk_widget_set_hexpand(b, TRUE);
+    w_add(b, w_label(label, "fin-muted caption"));
+    GtkWidget *m = w_money(v, cls);
+    gtk_label_set_xalign(GTK_LABEL(m), 0);
+    w_add(b, m);
+    if (show_sub) {
+        w_add(b, w_label(sub_label, "fin-muted caption"));
+        w_add(b, w_money(sub, sub_cls));
+    }
+    return b;
 }
 
 static void build_totals(void) {
     w_clear(M.totals);
     Flow f = flow_of(M.items);
-    Cents pend_in = 0, pend_out = 0;
-    gboolean any_pending = FALSE;
-    for (guint i = 0; i < M.items->len; i++) {
-        Tx *t = M.items->pdata[i];
-        if (!tx_is_flow(t) || t->paid) continue;
-        any_pending = TRUE;
-        if (t->kind == KIND_INCOME) pend_in += t->value; else pend_out += t->value;
+    Pending p = period_pending(M.items);
+    Cents bal = flow_balance(f), forecast = bal + p.to_receive - p.to_pay;
+    gboolean has_pend = p.to_receive > 0 || p.to_pay > 0;
+    GtkWidget *card = w_card("fin-flat");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(card), GTK_ACCESSIBLE_PROPERTY_LABEL, "Resumo do período", -1);
+    GtkWidget *row = w_hbox(10);
+    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
+    w_add(row, sum_col("Receitas", f.income, "fin-money-mid fin-green", "a receber", p.to_receive, "caption fin-green", p.to_receive > 0));
+    w_add(row, sum_col("Despesas", f.expense, "fin-money-mid fin-red", "a pagar", p.to_pay, "caption fin-red", p.to_pay > 0));
+    w_add(row, sum_col("Saldo", bal, bal < 0 ? "fin-money-mid fin-red" : "fin-money-mid", "previsto", forecast,
+                       forecast < 0 ? "caption fin-red" : "caption fin-accent", has_pend));
+    w_add(card, row);
+    /* com "Ocultar valores" a porcentagem também some */
+    if (f.income > 0 && !app_hidden()) {
+        g_autofree char *pct = g_strdup_printf("%.1f", f.expense * 100.0 / f.income);
+        for (char *q = pct; *q; q++) if (*q == '.') *q = ',';
+        g_autofree char *note = g_strdup_printf("As despesas são %s%% das receitas do período.", pct);
+        GtkWidget *nl = w_label_wrap(note, "fin-muted caption");
+        gtk_widget_set_margin_top(nl, 6);
+        w_add(card, nl);
     }
-    GtkWidget *two = w_hbox(10);
-    gtk_box_set_homogeneous(GTK_BOX(two), TRUE);
-    GtkWidget *a = w_card("fin-tight fin-flat");
-    w_add(a, w_icon_label("arrow-upward", "Receitas", "fin-muted caption"));
-    w_add(a, w_money(f.income, "fin-money-mid fin-green"));
-    GtkWidget *b = w_card("fin-tight fin-flat");
-    w_add(b, w_icon_label("arrow-downward", "Despesas", "fin-muted caption"));
-    w_add(b, w_money(f.expense, "fin-money-mid fin-red"));
-    w_add(two, a);
-    w_add(two, b);
-    w_add(M.totals, two);
-
-    GtkWidget *bal = w_card("fin-tight fin-flat");
-    GtkWidget *br = w_hbox(8);
-    GtkWidget *bl = w_label("Saldo do período", "fin-muted");
-    gtk_widget_set_hexpand(bl, TRUE);
-    w_add(br, bl);
-    w_add(br, w_money(flow_balance(f), flow_balance(f) < 0 ? "fin-money-mid fin-red" : "fin-money-mid"));
-    w_add(bal, br);
-    w_add(M.totals, bal);
-
-    GtkWidget *cmp = w_card("fin-flat");
-    GtkWidget *head = w_hbox(8);
-    GtkWidget *hh = w_section_head("Comparação", "Receitas × despesas");
-    gtk_widget_set_hexpand(hh, TRUE);
-    w_add(head, hh);
-    char gasto[32] = "—";
-    if (f.income > 0) g_snprintf(gasto, sizeof gasto, "%" G_GINT64_FORMAT "%% gasto", f.expense * 100 / f.income);
-    w_add(head, w_label(app_hidden() ? "••" : gasto, "fin-muted heading"));
-    w_add(cmp, head);
-    Cents total = f.income + f.expense;
-    w_add(cmp, compare_bar("Receitas", total > 0 ? (double)f.income / total : 0, "green"));
-    w_add(cmp, compare_bar("Despesas", total > 0 ? (double)f.expense / total : 0, "red"));
-    g_autofree char *summary = NULL;
-    if (f.income > 0) {
-        char *p = g_strdup_printf("%.1f", f.expense * 100.0 / f.income);
-        for (char *q = p; *q; q++) if (*q == '.') *q = ',';
-        summary = g_strdup_printf("As despesas representam %s%% das receitas do período.", app_hidden() ? "••" : p);
-        g_free(p);
-    } else if (f.expense > 0) summary = g_strdup("Há despesas, mas nenhuma receita neste período.");
-    else summary = g_strdup("Nenhuma movimentação no período selecionado.");
-    g_autofree char *pend = NULL;
-    if (!any_pending) pend = g_strdup("");
-    else if (app_hidden()) pend = g_strdup(" Há valores pendentes.");
-    else {
-        g_autofree char *x = money_fmt(pend_in), *y = money_fmt(pend_out);
-        pend = g_strdup_printf(" Pendente: a receber %s · a pagar %s.", x, y);
-    }
-    g_autofree char *full = g_strconcat(summary, pend, NULL);
-    w_add(cmp, w_label_wrap(full, "fin-muted caption"));
-    w_add(M.totals, cmp);
+    w_add(M.totals, card);
 }
 
-/* ---------------------------------------------------------------- lista */
+/* ---------------------------------------------------------------- lista agrupada por dia */
+
+static GtkWidget *day_head(Day d, GPtrArray *txs) {
+    GtkWidget *h = w_hbox(8);
+    gtk_widget_add_css_class(h, "fin-day-head");
+    g_autofree char *t = cal_day_title(d, APP->today);
+    g_autofree char *title = d == APP->today ? g_strdup_printf("Hoje · %s", t) : g_strdup(t);
+    GtkWidget *tl = w_label(title, "heading");
+    gtk_widget_set_hexpand(tl, TRUE);
+    w_add(h, tl);
+    /* saldo do dia pela mesma regra do calendário; só quando há dinheiro das contas no dia */
+    gboolean cash = FALSE;
+    for (guint i = 0; i < txs->len; i++) if (!tx_is_card((Tx *)txs->pdata[i])) cash = TRUE;
+    if (cash && !app_hidden()) {
+        Cents net = period_cash_net(txs);
+        char buf[40];
+        g_autofree char *s = g_strdup_printf("%s%s", net > 0 ? "+ " : net < 0 ? "− " : "", money_format(net < 0 ? -net : net, buf));
+        w_add(h, w_label(s, net < 0 ? "heading fin-red" : "heading fin-green"));
+    }
+    return h;
+}
+
+static void append_head(Day d, GPtrArray *group) {
+    GtkWidget *r = gtk_list_box_row_new();
+    gtk_list_box_row_set_activatable(GTK_LIST_BOX_ROW(r), FALSE);
+    gtk_list_box_row_set_selectable(GTK_LIST_BOX_ROW(r), FALSE);
+    gtk_widget_set_focusable(r, FALSE);
+    gtk_list_box_row_set_child(GTK_LIST_BOX_ROW(r), day_head(d, group));
+    gtk_list_box_append(GTK_LIST_BOX(M.list), r);
+}
 
 static void fill_list(guint upto) {
-    while (M.shown < upto && M.shown < M.items->len) {
-        Tx *t = M.items->pdata[M.shown++];
-        gtk_list_box_append(GTK_LIST_BOX(M.list), tx_row_new(t));
+    /* acrescenta grupos de dias até [upto] lançamentos; um dia nunca fica partido entre páginas */
+    while (M.shown < M.items->len && M.shown < upto) {
+        Day d = ((Tx *)M.items->pdata[M.shown])->date;
+        g_autoptr(GPtrArray) group = g_ptr_array_new();
+        guint j = M.shown;
+        while (j < M.items->len && ((Tx *)M.items->pdata[j])->date == d) g_ptr_array_add(group, M.items->pdata[j++]);
+        append_head(d, group);
+        for (guint i = 0; i < group->len; i++) gtk_list_box_append(GTK_LIST_BOX(M.list), tx_row_full(group->pdata[i], FALSE));
+        M.shown = j;
     }
     gboolean more = M.shown < M.items->len;
     gtk_widget_set_visible(M.more, more);
     if (more) {
-        g_autofree char *l = g_strdup_printf("Mostrar mais (%u de %u)", M.shown, M.items->len);
+        g_autofree char *l = g_strdup_printf("Mostrar mais (%u restantes)", M.items->len - M.shown);
         gtk_button_set_label(GTK_BUTTON(M.more), l);
     }
 }
@@ -286,27 +411,12 @@ static void rebuild_list(gboolean keep_scroll) {
     gtk_list_box_remove_all(GTK_LIST_BOX(M.list));
     M.shown = 0;
     fill_list(keep);
-    char n[16];
-    g_snprintf(n, sizeof n, "%u", M.items->len);
-    gtk_label_set_text(GTK_LABEL(M.count), n);
-    gtk_widget_set_visible(gtk_widget_get_parent(M.list), TRUE);
     /* aviso de lista vazia controlado aqui: gtk_list_box_remove_all() também descarta o placeholder da GtkListBox */
     gtk_widget_set_visible(M.list, M.items->len > 0);
     gtk_widget_set_visible(M.empty, M.items->len == 0);
     build_totals();
     if (keep_scroll) gtk_adjustment_set_value(adj, pos);
 }
-
-static void filters_changed(gpointer u) {
-    (void)u;
-    if (M.syncing) return;
-    read_inputs();
-    rebuild_list(FALSE);
-    app_refresh_page(PAGE_REPORTS); /* Relatórios usam o mesmo período */
-}
-
-static void on_search(GtkSearchEntry *e, gpointer u) { (void)e; filters_changed(u); }
-static void on_drop(GObject *o, GParamSpec *p, gpointer u) { (void)o; (void)p; filters_changed(u); }
 
 static void on_activated(GtkListBox *box, GtkListBoxRow *row, gpointer u) {
     (void)box; (void)u;
@@ -320,7 +430,26 @@ static void toggle_panel(GtkToggleButton *b, gpointer u) {
     gtk_revealer_set_reveal_child(GTK_REVEALER(M.panel_rev), gtk_toggle_button_get_active(b));
 }
 
+/* ---------------------------------------------------------------- Lista | Calendário */
+
+static void sync_view(void) {
+    gboolean cal = APP->moves_view == MOVES_CALENDAR;
+    M.syncing = TRUE;
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(M.view_list), !cal);
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(M.view_cal), cal);
+    M.syncing = FALSE;
+    gtk_stack_set_visible_child_name(GTK_STACK(M.stack), cal ? "calendar" : "list");
+}
+
+static void on_view(GtkToggleButton *b, gpointer which) {
+    if (M.syncing || !gtk_toggle_button_get_active(b)) return;
+    APP->moves_view = GPOINTER_TO_INT(which);
+    sync_view();
+    if (APP->moves_view == MOVES_CALENDAR) page_calendar_refresh();
+}
+
 void page_moves_focus_search(void) {
+    if (APP->moves_view != MOVES_LIST) { APP->moves_view = MOVES_LIST; sync_view(); }
     if (APP->layout == LAYOUT_NARROW) gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(M.panel_toggle), TRUE);
     gtk_widget_grab_focus(M.search);
 }
@@ -328,7 +457,7 @@ void page_moves_focus_search(void) {
 void page_moves_refresh(void) {
     if (!M.root || !APP->state) return;
     gboolean narrow = APP->layout == LAYOUT_NARROW;
-    gtk_orientable_set_orientation(GTK_ORIENTABLE(M.root), narrow ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL);
+    gtk_orientable_set_orientation(GTK_ORIENTABLE(M.body), narrow ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL);
     gtk_widget_set_visible(M.panel_toggle, narrow);
     int pw = APP->layout == LAYOUT_WIDE ? 380 : 330;
     gtk_widget_set_size_request(M.left, narrow ? -1 : pw, -1);
@@ -339,70 +468,103 @@ void page_moves_refresh(void) {
     gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(M.panel_sw), narrow ? 360 : -1);
     if (!narrow) gtk_revealer_set_reveal_child(GTK_REVEALER(M.panel_rev), TRUE);
     else gtk_revealer_set_reveal_child(GTK_REVEALER(M.panel_rev), gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(M.panel_toggle)));
-    write_inputs();
+    sync_view();
+    sync_controls();
     rebuild_list(TRUE);
+    page_calendar_refresh();
 }
 
-static GtkWidget *dropdown(const char *const *items, const char *label) {
-    GtkWidget *d = gtk_drop_down_new_from_strings(items);
-    gtk_widget_set_hexpand(d, TRUE);
-    gtk_accessible_update_property(GTK_ACCESSIBLE(d), GTK_ACCESSIBLE_PROPERTY_LABEL, label, -1);
-    return d;
+static GtkWidget *round_btn(const char *icon, const char *tip, FinFn fn, gpointer data) {
+    GtkWidget *b = w_button(NULL, icon, "fin-round", fn, data, NULL);
+    gtk_widget_set_tooltip_text(b, tip);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(b), GTK_ACCESSIBLE_PROPERTY_LABEL, tip, -1);
+    gtk_widget_set_valign(b, GTK_ALIGN_CENTER);
+    return b;
 }
 
-static GtkWidget *labeled(const char *label, GtkWidget *w) {
-    GtkWidget *b = w_vbox(4);
-    gtk_widget_set_hexpand(b, TRUE);
-    w_add(b, w_label(label, "fin-muted caption"));
-    w_add(b, w);
+static GtkWidget *chip(const char *label, int which) {
+    GtkWidget *b = gtk_toggle_button_new_with_label(label);
+    gtk_widget_add_css_class(b, "fin-pill");
+    g_signal_connect(b, "toggled", G_CALLBACK(on_chip), GINT_TO_POINTER(which));
+    return b;
+}
+
+static GtkWidget *view_btn(const char *icon, const char *label, int which) {
+    GtkWidget *b = gtk_toggle_button_new();
+    GtkWidget *c = adw_button_content_new();
+    g_autofree char *n = icon_name(icon);
+    adw_button_content_set_icon_name(ADW_BUTTON_CONTENT(c), n);
+    adw_button_content_set_label(ADW_BUTTON_CONTENT(c), label);
+    gtk_button_set_child(GTK_BUTTON(b), c);
+    gtk_widget_add_css_class(b, "fin-pill");
+    g_signal_connect(b, "toggled", G_CALLBACK(on_view), GINT_TO_POINTER(which));
     return b;
 }
 
 GtkWidget *page_moves_new(void) {
-    M.root = w_hbox(0);
+    M.root = w_vbox(0);
+
+    /* ---- título e chave Lista | Calendário ---- */
+    GtkWidget *top = w_hbox(10);
+    gtk_widget_set_margin_start(top, 20);
+    gtk_widget_set_margin_end(top, 24);
+    gtk_widget_set_margin_top(top, 16);
+    GtkWidget *title = w_label("Lançamentos", "title-2");
+    gtk_widget_set_hexpand(title, TRUE);
+    w_add(top, title);
+    GtkWidget *sw = w_hbox(4);
+    gtk_widget_add_css_class(sw, "fin-segment");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(sw), GTK_ACCESSIBLE_PROPERTY_LABEL, "Modo de exibição", -1);
+    M.view_list = view_btn("view-list", "Lista", MOVES_LIST);
+    M.view_cal = view_btn("calendar-month", "Calendário", MOVES_CALENDAR);
+    gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(M.view_cal), GTK_TOGGLE_BUTTON(M.view_list));
+    w_add(sw, M.view_list);
+    w_add(sw, M.view_cal);
+    w_add(top, sw);
+    w_add(M.root, top);
+
+    M.stack = gtk_stack_new();
+    gtk_stack_set_transition_type(GTK_STACK(M.stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
+    gtk_widget_set_vexpand(M.stack, TRUE);
+    w_add(M.root, M.stack);
+    M.body = w_hbox(0);
+    gtk_stack_add_named(GTK_STACK(M.stack), M.body, "list");
+    gtk_stack_add_named(GTK_STACK(M.stack), page_calendar_new(), "calendar");
 
     /* ---- painel ---- */
     GtkWidget *panel = w_vbox(12);
     gtk_widget_set_margin_start(panel, 20);
     gtk_widget_set_margin_end(panel, 12);
-    gtk_widget_set_margin_top(panel, 18);
+    gtk_widget_set_margin_top(panel, 12);
     gtk_widget_set_margin_bottom(panel, 18);
 
-    GtkWidget *per = w_card("fin-flat");
-    w_add(per, w_section_head("Movimentações", "Período"));
-    GtkWidget *dates = w_hbox(8);
-    gtk_box_set_homogeneous(GTK_BOX(dates), TRUE);
-    M.from = date_field("De", APP->filters.from, filters_changed, NULL);
-    M.to = date_field("Até", APP->filters.to, filters_changed, NULL);
-    w_add(dates, labeled("De", M.from));
-    w_add(dates, labeled("Até", M.to));
-    w_add(per, dates);
-    GtkWidget *pills = w_hbox(6);
-    gtk_box_set_homogeneous(GTK_BOX(pills), TRUE);
-    w_add(pills, w_pill("Este mês", preset_month, NULL, NULL));
-    w_add(pills, w_pill("30 dias", preset_30, NULL, NULL));
-    w_add(pills, w_pill("Tudo", preset_all, NULL, NULL));
-    w_add(per, pills);
-    w_add(panel, per);
+    GtkWidget *pbar = w_hbox(6);
+    w_add(pbar, round_btn("chevron-left", "Mês anterior", shift, GINT_TO_POINTER(-1)));
+    M.period_label = w_label("", "title-4");
+    gtk_label_set_xalign(GTK_LABEL(M.period_label), 0.5f);
+    gtk_label_set_ellipsize(GTK_LABEL(M.period_label), PANGO_ELLIPSIZE_END);
+    gtk_widget_set_hexpand(M.period_label, TRUE);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(M.period_label), GTK_ACCESSIBLE_PROPERTY_LABEL, "Período", -1);
+    w_add(pbar, M.period_label);
+    w_add(pbar, round_btn("chevron-right", "Próximo mês", shift, GINT_TO_POINTER(1)));
+    M.tune = round_btn("tune", "Período e filtros", open_filters, NULL);
+    w_add(pbar, M.tune);
+    w_add(panel, pbar);
 
-    GtkWidget *flt = w_card("fin-flat");
-    w_add(flt, w_eyebrow("Filtros da lista"));
     M.search = gtk_search_entry_new();
-    g_object_set(M.search, "placeholder-text", "Descrição ou categoria", NULL);
-    gtk_accessible_update_property(GTK_ACCESSIBLE(M.search), GTK_ACCESSIBLE_PROPERTY_LABEL, "Buscar lançamentos", -1);
+    g_object_set(M.search, "placeholder-text", "Buscar descrição ou categoria", NULL);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(M.search), GTK_ACCESSIBLE_PROPERTY_LABEL, "Buscar lançamentos (descrição ou categoria)", -1);
+    gtk_widget_set_tooltip_text(M.search, "Buscar lançamentos (Ctrl+F)");
     g_signal_connect(M.search, "search-changed", G_CALLBACK(on_search), NULL);
-    w_add(flt, labeled("Buscar lançamentos (Ctrl+F)", M.search));
-    GtkWidget *two = w_hbox(8);
-    static const char *const kinds[] = {"Todos", "Receitas", "Despesas", NULL};
-    static const char *const paid[] = {"Todos", "Realizados", "Pendentes", NULL};
-    M.kind = dropdown(kinds, "Tipo");
-    M.paid = dropdown(paid, "Situação");
-    g_signal_connect(M.kind, "notify::selected", G_CALLBACK(on_drop), NULL);
-    g_signal_connect(M.paid, "notify::selected", G_CALLBACK(on_drop), NULL);
-    w_add(two, labeled("Tipo", M.kind));
-    w_add(two, labeled("Situação", M.paid));
-    w_add(flt, two);
-    w_add(panel, flt);
+    w_add(panel, M.search);
+
+    GtkWidget *chips = w_hbox(6);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(chips), GTK_ACCESSIBLE_PROPERTY_LABEL, "Filtros", -1);
+    w_add(chips, M.chip_all = chip("Todos", 0));
+    w_add(chips, M.chip_inc = chip("Receitas", 1));
+    w_add(chips, M.chip_exp = chip("Despesas", 2));
+    w_add(chips, M.chip_pend = chip("Pendentes", 3));
+    w_add(panel, chips);
 
     M.totals = w_vbox(10);
     w_add(panel, M.totals);
@@ -416,7 +578,7 @@ GtkWidget *page_moves_new(void) {
     gtk_revealer_set_reveal_child(GTK_REVEALER(M.panel_rev), TRUE);
 
     GtkWidget *left = M.left = w_vbox(0);
-    M.panel_toggle = gtk_toggle_button_new_with_label("Período, filtros e totais");
+    M.panel_toggle = gtk_toggle_button_new_with_label("Período, filtros e resumo");
     gtk_widget_add_css_class(M.panel_toggle, "flat");
     gtk_widget_set_margin_start(M.panel_toggle, 12);
     gtk_widget_set_margin_end(M.panel_toggle, 12);
@@ -424,33 +586,22 @@ GtkWidget *page_moves_new(void) {
     g_signal_connect(M.panel_toggle, "toggled", G_CALLBACK(toggle_panel), NULL);
     w_add(left, M.panel_toggle);
     w_add(left, M.panel_rev);
-    w_add(M.root, left);
+    w_add(M.body, left);
 
     /* ---- lista ---- */
     GtkWidget *right = w_vbox(8);
     gtk_widget_set_hexpand(right, TRUE);
     gtk_widget_set_vexpand(right, TRUE);
-    GtkWidget *head = w_hbox(8);
-    gtk_widget_set_margin_start(head, 12);
-    gtk_widget_set_margin_end(head, 24);
-    gtk_widget_set_margin_top(head, 18);
-    GtkWidget *hh = w_section_head("No período", "Todos os lançamentos");
-    gtk_widget_set_hexpand(hh, TRUE);
-    w_add(head, hh);
-    M.count = w_badge("0", "accent");
-    gtk_widget_set_tooltip_text(M.count, "Lançamentos na lista");
-    w_add(head, M.count);
-    w_add(right, head);
-
     GtkWidget *lbox = w_vbox(8);
     gtk_widget_set_margin_start(lbox, 12);
     gtk_widget_set_margin_end(lbox, 24);
+    gtk_widget_set_margin_top(lbox, 12);
     gtk_widget_set_margin_bottom(lbox, 24);
     M.list = gtk_list_box_new();
     gtk_list_box_set_selection_mode(GTK_LIST_BOX(M.list), GTK_SELECTION_NONE);
     gtk_widget_add_css_class(M.list, "fin-list");
     gtk_widget_set_name(M.list, "fin-tx-list");
-    gtk_accessible_update_property(GTK_ACCESSIBLE(M.list), GTK_ACCESSIBLE_PROPERTY_LABEL, "Lançamentos", -1);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(M.list), GTK_ACCESSIBLE_PROPERTY_LABEL, "Lançamentos do período, por dia", -1);
     g_signal_connect(M.list, "row-activated", G_CALLBACK(on_activated), NULL);
     /* aviso de lista vazia, irmão da lista (não placeholder: remove_all() o descartaria;
        e um AdwStatusPage aqui ficava com altura zero, pois tem rolagem própria) */
@@ -462,9 +613,8 @@ GtkWidget *page_moves_new(void) {
     GtkWidget *eic = w_icon("swap-horiz", 48);
     gtk_widget_add_css_class(eic, "fin-muted");
     w_add(empty, eic);
-    GtkWidget *et = w_label("Nenhum lançamento neste período", "title-3");
-    w_add(empty, et);
-    GtkWidget *ed = w_label_wrap("Altere as datas ou adicione uma movimentação (Ctrl+N).", "fin-muted");
+    w_add(empty, w_label("Nenhum lançamento neste período", "title-3"));
+    GtkWidget *ed = w_label_wrap("Troque o mês, ajuste os filtros ou adicione uma movimentação (Ctrl+N).", "fin-muted");
     gtk_label_set_justify(GTK_LABEL(ed), GTK_JUSTIFY_CENTER);
     w_add(empty, ed);
     w_add(lbox, M.list);
@@ -482,6 +632,6 @@ GtkWidget *page_moves_new(void) {
     gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(M.list_sw), clamp);
     gtk_widget_set_vexpand(M.list_sw, TRUE);
     w_add(right, M.list_sw);
-    w_add(M.root, right);
+    w_add(M.body, right);
     return M.root;
 }

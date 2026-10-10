@@ -26,6 +26,9 @@ typedef enum { PAGE_HOME, PAGE_MOVES, PAGE_REPORTS, PAGE_ASSIST, PAGE_SETTINGS, 
 /* largura útil da área de conteúdo: define quantas colunas cada tela usa */
 typedef enum { LAYOUT_NARROW, LAYOUT_MEDIUM, LAYOUT_WIDE } Layout;
 
+/* visão da aba Lançamentos */
+typedef enum { MOVES_LIST, MOVES_CALENDAR } MovesView;
+
 typedef struct {
     Day from, to;    /* DAY_NONE = sem limite */
     char *query;
@@ -51,6 +54,10 @@ typedef struct {
     gint64 inactive_since; /* tempo monotônico em que a janela perdeu o foco; 0 = ativa */
 
     Filters filters;
+    MovesView moves_view;
+    /* calendário: mês mostrado (YM_NONE = ainda não aberto: abre no mês de hoje) e dia escolhido */
+    Ym cal_ym;
+    Day cal_day;
     Layout layout;
     PageId page;
 
@@ -77,6 +84,10 @@ gboolean app_hidden(void);
 void app_show_page(PageId p);
 /* abre Lançamentos já filtrado (usado pelas dicas e respostas do assistente) */
 void app_open_moves(const char *query, Day from, Day to, int kind);
+/* abre Lançamentos com o filtro "Pendentes" no período atual (botão do cartão Vencimentos) */
+void app_open_moves_pending(void);
+/* abre Lançamentos › Calendário no mês [ym] */
+void app_open_calendar(Ym ym);
 
 /* ---- avisos ---- */
 void app_toast(const char *fmt, ...) G_GNUC_PRINTF(1, 2);

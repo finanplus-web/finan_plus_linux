@@ -20,6 +20,8 @@
     <file alias="icons/scalable/actions/fin-category-symbolic.svg">icons/symbolic/fin-category-symbolic.svg</file>
     <file alias="icons/scalable/actions/fin-check-symbolic.svg">icons/symbolic/fin-check-symbolic.svg</file>
     <file alias="icons/scalable/actions/fin-checkroom-symbolic.svg">icons/symbolic/fin-checkroom-symbolic.svg</file>
+    <file alias="icons/scalable/actions/fin-chevron-left-symbolic.svg">icons/symbolic/fin-chevron-left-symbolic.svg</file>
+    <file alias="icons/scalable/actions/fin-view-list-symbolic.svg">icons/symbolic/fin-view-list-symbolic.svg</file>
     <file alias="icons/scalable/actions/fin-chevron-right-symbolic.svg">icons/symbolic/fin-chevron-right-symbolic.svg</file>
     <file alias="icons/scalable/actions/fin-close-symbolic.svg">icons/symbolic/fin-close-symbolic.svg</file>
     <file alias="icons/scalable/actions/fin-credit-card-symbolic.svg">icons/symbolic/fin-credit-card-symbolic.svg</file>

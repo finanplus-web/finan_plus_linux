@@ -225,6 +225,16 @@ GtkWidget *w_button(const char *label, const char *icon, const char *classes, Fi
     return b;
 }
 
+GtkWidget *w_more_link(const char *label, FinFn fn, gpointer data, GDestroyNotify destroy) {
+    GtkWidget *b = w_button(label, NULL, "flat fin-link", fn, data, destroy);
+    GtkWidget *row = w_hbox(2);
+    w_add(row, gtk_label_new(label));
+    w_add(row, w_icon("chevron-right", 18));
+    gtk_button_set_child(GTK_BUTTON(b), row);
+    gtk_widget_set_halign(b, GTK_ALIGN_START);
+    return b;
+}
+
 GtkWidget *w_pill(const char *label, FinFn fn, gpointer data, GDestroyNotify destroy) {
     return w_button(label, NULL, "fin-pill", fn, data, destroy);
 }
