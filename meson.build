@@ -61,6 +61,8 @@ foreach s : ['16', '32', '48', '64', '128', '192', '256', '512']
     install_dir: datadir / 'icons/hicolor/@0@x@0@/apps'.format(s),
     rename: 'com.finanplus.FinanPlus.png')
 endforeach
+install_data('data/icons/app/com.finanplus.FinanPlus.svg', install_dir: datadir / 'icons/hicolor/scalable/apps')
+install_data('data/icons/app/com.finanplus.FinanPlus-symbolic.svg', install_dir: datadir / 'icons/hicolor/symbolic/apps')
 install_data('data/dicionario.txt', install_dir: datadir / 'finan-plus')
 install_data('LICENSE', 'README.md', 'FUNCIONALIDADES.md', 'ASSISTENTE.md', 'CHANGELOG.md', install_dir: datadir / 'doc/finan-plus')
 install_data('third_party/material-symbols/LICENSE', install_dir: datadir / 'doc/finan-plus', rename: 'LICENSE-icones-Apache-2.0')

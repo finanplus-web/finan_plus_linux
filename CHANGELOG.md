@@ -1,5 +1,12 @@
 # Changelog — Finan+ para Linux
 
+## Ícone novo: F+ (10/10/2026)
+
+- O ícone do Finan+ passou a ser o monograma **F+**: o F em azul (`#4269d8`) com o "+" num círculo, sobre o fundo claro do app (`#eef4ff`, com os brilhos azul e rosa). É o mesmo ícone do app Android e do Finan+ web.
+- `data/icons/app/` traz os PNG novos de 16 a 512 px (instalados em `hicolor/<tamanho>/apps`) e dois arquivos novos que o `meson install` também instala: `com.finanplus.FinanPlus.svg` em `hicolor/scalable/apps` (nítido em qualquer tamanho e escala de tela) e `com.finanplus.FinanPlus-symbolic.svg` em `hicolor/symbolic/apps` (silhueta para painéis e temas que usam ícones simbólicos).
+- O ícone aparece no menu de aplicativos, na janela, na tela de bloqueio e nas notificações. Nenhum código C mudou: tudo usa o nome `com.finanplus.FinanPlus`, como antes.
+- Fontes em vetor (com e sem sombra, só o símbolo e uma cor) em [`docs/icone/`](docs/icone/).
+
 ## 1.1.8 — correção das dicas de ritmo do assistente (08/10/2026)
 
 **Problema (relatado pelo autor no Finan+ web, mesma regra aqui):** no dia 8, com R$ 500 de receita e uma única despesa de R$ 200, o assistente avisava "Despesas podem passar das receitas" com R$ 775 previstos. A conta multiplicava aquela compra pelos dias do mês (R$ 200 ÷ 8 × 31), como se ela se repetisse todo dia. O mesmo valia para "Ritmo do limite".
