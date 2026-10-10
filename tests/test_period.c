@@ -9,6 +9,8 @@
 #include "core/period.h"
 #include "core/simulator.h"
 #include "core/assist.h"
+#include "core/finance.h"
+#include "core/ops.h"
 #include <string.h>
 
 static Day D(const char *s) {
@@ -381,6 +383,78 @@ static void test_home_highlights(void) {
     month_report_free(r);
 }
 
+/* ================================================================ recorrências previstas (ProjectionTest) */
+
+static AppState *with_adiant(gboolean active) {
+    AppState *s = app_state_new();
+    g_ptr_array_add(s->recurring, recurring_new("adiant", KIND_INCOME, "adiant", 121362, "Salário", "main", "", 15, active, D("2026-10-15"), ym_make(2026, 10)));
+    return s;
+}
+
+static void test_proj_next_months(void) {
+    Day today = D("2026-10-10");
+    g_autoptr(AppState) s = with_adiant(TRUE);
+    g_autoptr(GPtrArray) l = projection_between(s, D("2026-10-01"), D("2026-12-31"), today);
+    g_assert_cmpuint(l->len, ==, 2);
+    Tx *a = l->pdata[0], *b = l->pdata[1];
+    g_assert_cmpint(a->date, ==, D("2026-11-15"));
+    g_assert_cmpint(b->date, ==, D("2026-12-15"));
+    g_assert_cmpstr(a->id, ==, "prev:adiant:2026-11");
+    g_assert_true(tx_is_projected(a) && !a->paid && a->kind == KIND_INCOME && a->value == 121362);
+    g_assert_cmpstr(a->recurring_id, ==, "adiant");
+    g_assert_false(ops_can_toggle_paid(a));
+}
+
+static void test_proj_rules(void) {
+    Day today = D("2026-10-10");
+    g_autoptr(AppState) off = with_adiant(FALSE);
+    g_autoptr(GPtrArray) none = projection_between(off, today, D("2027-12-31"), today);
+    g_assert_cmpuint(none->len, ==, 0);
+    g_autoptr(AppState) s = app_state_new();
+    g_ptr_array_add(s->recurring, recurring_new("r", KIND_EXPENSE, "r", 5000, "Outros", "main", "", 31, TRUE, D("2027-02-10"), YM_NONE));
+    g_autoptr(GPtrArray) l = projection_between(s, today, D("2027-04-30"), today);
+    g_assert_cmpuint(l->len, ==, 3);
+    g_assert_cmpint(((Tx *)l->pdata[0])->date, ==, D("2027-02-28"));
+    g_assert_cmpint(((Tx *)l->pdata[1])->date, ==, D("2027-03-31"));
+    g_assert_cmpint(((Tx *)l->pdata[2])->date, ==, D("2027-04-30"));
+    g_autoptr(AppState) s2 = app_state_new();
+    g_ptr_array_add(s2->recurring, recurring_new("s", KIND_INCOME, "s", 1000, "Outros", "main", "", 5, TRUE, DAY_NONE, ym_make(2026, 8)));
+    g_autoptr(GPtrArray) l2 = projection_between(s2, today, D("2026-11-30"), today);
+    g_assert_cmpuint(l2->len, ==, 1);
+    g_assert_cmpint(((Tx *)l2->pdata[0])->date, ==, D("2026-11-05"));
+}
+
+static void test_proj_calendar_pending_forecast(void) {
+    Day today = D("2026-10-10");
+    g_autoptr(AppState) s = with_adiant(TRUE);
+    g_ptr_array_add(s->txs, tx("alug", KIND_EXPENSE, 12140, "2026-11-30", FALSE, NULL, NULL));
+    Ym nov = ym_make(2026, 11);
+    g_autoptr(CalMonth) m = cal_build(s, nov, today);
+    const CalDay *d = cal_get(m, D("2026-11-15"));
+    g_assert_nonnull(d);
+    g_assert_cmpint(d->income, ==, 121362);
+    g_assert_cmpint(d->marks, ==, MARK_INCOME);
+    Pending p = period_month_pending(s, nov, today);
+    g_assert_cmpint(p.to_receive, ==, 121362);
+    g_assert_cmpint(p.to_pay, ==, 12140);
+    g_assert_cmpint(future_balance(s, D("2026-11-30"), today) - current_balance(s), ==, 121362 - 12140);
+    g_autoptr(AppState) e = app_state_new();
+    g_autoptr(AppState) a = with_adiant(TRUE);
+    g_assert_cmpint(future_balance(a, D("2026-10-31"), today), ==, future_balance(e, D("2026-10-31"), today));
+}
+
+static void test_proj_month_arrives(void) {
+    Day nov1 = D("2026-11-01");
+    g_autoptr(AppState) s = with_adiant(TRUE);
+    g_assert_cmpint(generate_recurring(s, nov1), ==, 1);
+    g_assert_cmpint(((Tx *)s->txs->pdata[0])->date, ==, D("2026-11-15"));
+    g_autoptr(GPtrArray) l = projection_between(s, nov1, D("2026-12-31"), nov1);
+    g_assert_cmpuint(l->len, ==, 1);
+    g_assert_cmpint(((Tx *)l->pdata[0])->date, ==, D("2026-12-15"));
+    g_autoptr(CalMonth) m = cal_build(s, ym_make(2026, 11), nov1);
+    g_assert_cmpint(cal_get(m, D("2026-11-15"))->income, ==, 121362);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/period/labels", test_period_labels);
@@ -400,5 +474,9 @@ int main(int argc, char **argv) {
     g_test_add_func("/simulator/debts-and-payoff", test_sim_debts);
     g_test_add_func("/simulator/report-comparison", test_report_comparison);
     g_test_add_func("/assist/home-highlights", test_home_highlights);
+    g_test_add_func("/projection/next-months", test_proj_next_months);
+    g_test_add_func("/projection/rules", test_proj_rules);
+    g_test_add_func("/projection/calendar-pending-forecast", test_proj_calendar_pending_forecast);
+    g_test_add_func("/projection/month-arrives", test_proj_month_arrives);
     return g_test_run();
 }

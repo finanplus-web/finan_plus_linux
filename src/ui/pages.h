@@ -70,6 +70,8 @@ void show_shortcuts(void);
 GtkWidget *tx_row_new(const Tx *t);
 /* [with_date] FALSE quando a data já aparece no título (lista por dia e calendário) */
 GtkWidget *tx_row_full(const Tx *t, gboolean with_date);
+/* abre o lançamento da linha ou, se for previsto, a recorrência */
+void tx_row_activate(GtkWidget *row);
 const char *tx_status(const Tx *t, gboolean *late);
 
 

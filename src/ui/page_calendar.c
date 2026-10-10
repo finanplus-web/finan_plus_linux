@@ -256,7 +256,7 @@ static GtkWidget *month_totals(const CalMonth *m) {
     w_add(row, total_box("Saídas", exp, "fin-money-mid fin-red"));
     w_add(row, total_box("Resultado", inc - exp, inc - exp < 0 ? "fin-money-mid fin-red" : "fin-money-mid fin-accent"));
     w_add(v, row);
-    w_add(v, w_label_wrap("Inclui o que ainda está pendente e as faturas no dia do vencimento. Compras no cartão aparecem no dia, mas só contam na fatura.",
+    w_add(v, w_label_wrap("Inclui o que ainda está pendente, as faturas no dia do vencimento e, nos próximos meses, as recorrências previstas. Compras no cartão aparecem no dia, mas só contam na fatura.",
                           "fin-muted caption"));
     return v;
 }
@@ -268,9 +268,7 @@ static void on_row_activated(GtkListBox *box, GtkListBoxRow *row, gpointer u) {
     GtkWidget *child = gtk_list_box_row_get_child(row);
     const char *card = g_object_get_data(G_OBJECT(child), "card");
     if (card) { editor_pay_invoice(card); return; }
-    const char *id = g_object_get_data(G_OBJECT(child), "id");
-    Tx *t = id ? app_tx(APP->state, id) : NULL;
-    if (t) editor_tx(t->kind, t->id);
+    tx_row_activate(child);
 }
 
 /* fatura em aberto que vence no dia: abre "Pagar fatura" */
