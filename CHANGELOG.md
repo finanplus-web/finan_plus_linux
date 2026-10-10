@@ -1,5 +1,10 @@
 # Changelog — Finan+ para Linux
 
+## Próxima versão — AppImage
+
+- **AppImage** para rodar sem instalar ou em distribuições sem `.deb`, publicado nas Releases junto com o `.deb` a partir da próxima versão. Contribuição de [@satodu](https://github.com/satodu) ([PR #1](https://github.com/finanplus-web/finan_plus_linux/pull/1)): `packaging/build-appimage.sh` e o passo no fluxo de publicação.
+- Ajustes por cima da contribuição: o `AppRun` não deixa mais uma entrada vazia no `LD_LIBRARY_PATH` (o que faria o sistema procurar bibliotecas na pasta atual); o `appimagetool` agora é a versão 1.9.1 fixa, conferida pelo SHA-256, em vez da "mais recente" de um projeto descontinuado; o README diz o que o AppImage precisa no sistema (GTK 4.12+, libadwaita 1.5+ e, em algumas distros, `libfuse2`).
+
 ## 1.2.1 — Recorrências aparecem nos próximos meses (10/10/2026)
 
 **Problema (relatado pelo autor no Android e na web, mesma regra aqui):** a receita fixa "Adiantamento Quinzenal" (todo dia 15) não aparecia em novembro e dezembro no calendário, enquanto uma despesa parcelada aparecia. Causa: toda recorrência só vira lançamento quando o mês chega; as parcelas são criadas de uma vez.

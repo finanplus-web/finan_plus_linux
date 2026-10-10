@@ -35,14 +35,16 @@ Para remover: `sudo apt remove finan-plus`. Os seus dados continuam em `~/.local
 
 ## AppImage (portátil / outras distribuições)
 
-Para rodar em qualquer distribuição com ambiente moderno (Fedora, Arch Linux, Manjaro, openSUSE...) ou sem instalar no sistema:
+Para rodar sem instalar ou em distribuições sem `.deb` (Fedora, Arch Linux, Manjaro, openSUSE Tumbleweed...). Contribuição de [@satodu](https://github.com/satodu).
+
+**Requisitos:** o AppImage leva junto as bibliotecas do núcleo (libsodium, libsecret, json-glib), mas usa o **GTK 4.12+** e o **libadwaita 1.5+** do sistema, então precisa de uma distribuição atual (ex.: Fedora 40+, Arch, Tumbleweed). Algumas distribuições também pedem o pacote `libfuse2` (ou `fuse2`) para abrir AppImages; sem ele, dá para rodar com `--appimage-extract-and-run`.
 
 1. Baixe o `.AppImage` da [página de versões](https://github.com/finanplus-web/finan_plus_linux/releases/latest).
 2. Torne o arquivo executável e abra:
 
 ```sh
-chmod +x finan-plus_1.1.7_x86_64.AppImage
-./finan-plus_1.1.7_x86_64.AppImage
+chmod +x finan-plus_<versão>_x86_64.AppImage
+./finan-plus_<versão>_x86_64.AppImage
 ```
 
 ## Seus dados
@@ -81,7 +83,7 @@ meson test -C build          # 88 testes (núcleo, período, calendário e simul
 
 Gerar o `.deb`: `packaging/build-deb.sh`, que cria `finan-plus_1.2.0_amd64.deb`.
 
-Gerar o `.AppImage`: `packaging/build-appimage.sh`, que cria `finan-plus_1.1.7_x86_64.AppImage`.
+Gerar o `.AppImage`: `packaging/build-appimage.sh`, que cria `finan-plus_<versão>_x86_64.AppImage`.
 
 Compilar com verificação de memória: `meson setup build-asan -Db_sanitize=address,undefined`.
 
