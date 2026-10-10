@@ -18,13 +18,16 @@ G_BEGIN_DECLS
 
 #define APP_ID "com.finanplus.FinanPlus"
 #ifndef APP_VERSION
-#define APP_VERSION "1.1.8"
+#define APP_VERSION "1.2.0"
 #endif
 
 typedef enum { PAGE_HOME, PAGE_MOVES, PAGE_REPORTS, PAGE_ASSIST, PAGE_SETTINGS, PAGE_COUNT } PageId;
 
 /* largura útil da área de conteúdo: define quantas colunas cada tela usa */
 typedef enum { LAYOUT_NARROW, LAYOUT_MEDIUM, LAYOUT_WIDE } Layout;
+
+/* visão da aba Lançamentos */
+typedef enum { MOVES_LIST, MOVES_CALENDAR } MovesView;
 
 typedef struct {
     Day from, to;    /* DAY_NONE = sem limite */
@@ -47,10 +50,15 @@ typedef struct {
     gboolean problem;
     /* cancelado ao bloquear: fecha seletores de arquivo abertos */
     GCancellable *files;
-    PinThrottle throttle;
+    /* até quando sair da janela não conta para o bloqueio automático (seletor de arquivos aberto pelo app) */
+    gint64 external_until;
     gint64 inactive_since; /* tempo monotônico em que a janela perdeu o foco; 0 = ativa */
 
     Filters filters;
+    MovesView moves_view;
+    /* calendário: mês mostrado (YM_NONE = ainda não aberto: abre no mês de hoje) e dia escolhido */
+    Ym cal_ym;
+    Day cal_day;
     Layout layout;
     PageId page;
 
@@ -77,12 +85,19 @@ gboolean app_hidden(void);
 void app_show_page(PageId p);
 /* abre Lançamentos já filtrado (usado pelas dicas e respostas do assistente) */
 void app_open_moves(const char *query, Day from, Day to, int kind);
+/* abre Lançamentos com o filtro "Pendentes" no período atual (botão do cartão Vencimentos) */
+void app_open_moves_pending(void);
+/* abre Lançamentos › Calendário no mês [ym] */
+void app_open_calendar(Ym ym);
 
 /* ---- avisos ---- */
 void app_toast(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
 
 /* ---- bloqueio ---- */
 void app_lock(void);
+/* antes de abrir um seletor de arquivos: voltar dele não pede o PIN (até 5 min) */
+void app_external_begin(void);
+void app_external_end(void);
 void app_unlocked(void);
 gboolean app_lock_enabled(void);
 

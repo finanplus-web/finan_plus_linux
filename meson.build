@@ -1,7 +1,7 @@
 # Finan+ — Copyright (C) 2026 Juscelino Be
 # SPDX-License-Identifier: GPL-3.0-or-later
 project('finan-plus', 'c',
-  version: '1.1.8',
+  version: '1.2.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 0.63',
   default_options: ['c_std=gnu11', 'warning_level=2', 'buildtype=release', 'b_ndebug=if-release'])
@@ -33,7 +33,8 @@ resources = gnome.compile_resources('finan-resources', 'data/finan-plus.gresourc
 core_src = files(
   'src/core/date.c', 'src/core/model.c', 'src/core/money.c', 'src/core/finance.c', 'src/core/ops.c',
   'src/core/backup.c', 'src/core/assist_text.c', 'src/core/assist_dict.c', 'src/core/assist_categorizer.c',
-  'src/core/assist_insights.c', 'src/core/assist_ask.c', 'src/core/report.c', 'src/core/store.c', 'src/core/prefs.c')
+  'src/core/assist_insights.c', 'src/core/assist_ask.c', 'src/core/report.c', 'src/core/store.c', 'src/core/prefs.c',
+  'src/core/period.c', 'src/core/simulator.c')
 
 # núcleo sem interface (testado separadamente)
 core_lib = static_library('financore', core_src,
@@ -44,7 +45,7 @@ core_dep = declare_dependency(link_with: core_lib, include_directories: include_
 
 ui_src = files(
   'src/main.c', 'src/ui/window.c', 'src/ui/theme.c', 'src/ui/widgets.c', 'src/ui/page_home.c',
-  'src/ui/page_moves.c', 'src/ui/page_reports.c', 'src/ui/page_assist.c', 'src/ui/page_settings.c',
+  'src/ui/page_moves.c', 'src/ui/page_calendar.c', 'src/ui/simulator.c', 'src/ui/page_reports.c', 'src/ui/page_assist.c', 'src/ui/page_settings.c',
   'src/ui/editors.c', 'src/ui/lock.c', 'src/ui/data.c', 'src/ui/notify.c', 'src/ui/misc.c', 'src/ui/pdf.c',
   'src/ui/pdf_render.c')
 
@@ -72,7 +73,9 @@ install_man('data/finan-plus.1')
 test_core = executable('test-core', 'tests/test_core.c',
   dependencies: [core_dep],
   c_args: ['-DDICT_PATH="@0@"'.format(meson.current_source_dir() / 'data/dicionario.txt')])
-test('núcleo (60 casos do app Android)', test_core, env: ['FINAN_PLUS_NO_KEYRING=1'])
+test('núcleo (casos do app Android)', test_core, env: ['FINAN_PLUS_NO_KEYRING=1'])
+test_period = executable('test-period', 'tests/test_period.c', dependencies: [core_dep])
+test('período, calendário e simulador (casos do Android 1.4.0)', test_period, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_store = executable('test-store', 'tests/test_store.c', dependencies: [core_dep])
 test('armazenamento e PIN', test_store, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_pdf = executable('test-pdf', 'tests/test_pdf.c', 'src/ui/pdf_render.c', 'src/ui/theme.c',

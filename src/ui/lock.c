@@ -2,7 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Tela de bloqueio por PIN. A verificação (Argon2id) roda em segundo plano para não travar a janela.
- * Após 5 erros seguidos há espera crescente entre tentativas (30 s, 60 s, 90 s…).
+ * Após 5 erros seguidos há espera crescente entre tentativas (30 s, 1 min, 2 min… até 1 hora), gravada
+ * neste computador: fechar o app ou reiniciar não zera a espera.
  */
 #include "pages.h"
 #include "widgets.h"
@@ -63,8 +64,8 @@ static void verified(GObject *src, GAsyncResult *res, gpointer u) {
         app_unlocked();
         return;
     }
-    pin_throttle_fail(&APP->throttle);
-    gtk_label_set_text(GTK_LABEL(L.msg), pin_throttle_wait_seconds(&APP->throttle) > 0 ? "PIN incorreto. Aguarde para tentar de novo." : "PIN incorreto.");
+    /* a tentativa já foi contada antes da conferência (submit) */
+    gtk_label_set_text(GTK_LABEL(L.msg), pin_wait_seconds(APP->prefs) > 0 ? "PIN incorreto. Aguarde para tentar de novo." : "PIN incorreto.");
     gtk_widget_grab_focus(L.entry);
 }
 
@@ -72,13 +73,16 @@ static void submit(GtkWidget *w, gpointer u) {
     (void)w; (void)u;
     const char *pin = gtk_editable_get_text(GTK_EDITABLE(L.entry));
     if (L.busy || strlen(pin) < 4) return;
-    int wait = pin_throttle_wait_seconds(&APP->throttle);
+    int wait = pin_wait_seconds(APP->prefs);
     if (wait > 0) {
-        g_autofree char *m = g_strdup_printf("Muitas tentativas. Aguarde %d s.", wait);
+        g_autofree char *m = wait >= 120 ? g_strdup_printf("Muitas tentativas. Aguarde %d min.", (wait + 59) / 60)
+                                         : g_strdup_printf("Muitas tentativas. Aguarde %d s.", wait);
         gtk_label_set_text(GTK_LABEL(L.msg), m);
         gtk_editable_set_text(GTK_EDITABLE(L.entry), "");
         return;
     }
+    /* conta a tentativa antes de conferir: fechar o app no meio não escapa do limite */
+    pin_attempt(APP->prefs);
     L.busy = TRUE;
     gtk_widget_set_sensitive(L.button, FALSE);
     gtk_label_set_text(GTK_LABEL(L.msg), "Verificando…");

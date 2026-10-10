@@ -1,17 +1,20 @@
 # Finan+ para Linux
 
-Controle financeiro pessoal **simples, privado e offline**, agora nativo para Linux: C, GTK 4 e libadwaita, com janela pensada para computador e notebook. Tem tudo o que o app Android faz: receitas, despesas, contas, cartões e faturas, parcelas, recorrências, limites, metas, relatórios, relatório em PDF, assistente no computador, PIN e backup compatível.
+Controle financeiro pessoal **simples, privado e offline**, agora nativo para Linux: C, GTK 4 e libadwaita, com janela pensada para computador e notebook. Tem tudo o que o app Android faz: receitas, despesas, contas, cartões e faturas, parcelas, recorrências, limites, metas, calendário de lançamentos, relatórios, simulador "E se…?", relatório em PDF, assistente no computador, PIN e backup compatível.
 
 ![Início](docs/inicio.png)
 
-| Lançamentos | Relatórios |
+| Lançamentos | Calendário |
 |---|---|
-| ![Lançamentos](docs/lancamentos.png) | ![Relatórios](docs/relatorios.png) |
-| **Ajustes (tema Tokyo Night)** | **Janela estreita** |
-| ![Ajustes](docs/ajustes-tokyo.png) | ![Estreita](docs/janela-estreita.png) |
+| ![Lançamentos](docs/lancamentos.png) | ![Calendário](docs/calendario.png) |
+| **Relatórios e "E se…?"** | **Janela estreita** |
+| ![Relatórios](docs/relatorios.png) | ![Estreita](docs/janela-estreita.png) |
+| **Ajustes (tema Tokyo Night)** | |
+| ![Ajustes](docs/ajustes-tokyo.png) | |
 
 - Lista completa do que o app faz: [FUNCIONALIDADES.md](FUNCIONALIDADES.md)
 - Como o assistente decide cada coisa: [ASSISTENTE.md](ASSISTENTE.md)
+- Calendário de lançamentos: [CALENDARIO.md](CALENDARIO.md) · Simulador "E se…?": [SIMULADOR.md](SIMULADOR.md)
 - O que foi feito nesta versão: [CHANGELOG.md](CHANGELOG.md)
 
 **Baixar:** [última versão (.deb)](https://github.com/finanplus-web/finan_plus_linux/releases/latest) · **Finan+ web (PWA):** [usar no navegador](https://finanplus-web.github.io/finan_plus/) ([código-fonte](https://github.com/finanplus-web/finan_plus))
@@ -21,7 +24,7 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 Baixe o `.deb` da [página de versões](https://github.com/finanplus-web/finan_plus_linux/releases/latest) e instale:
 
 ```sh
-sudo apt install ./finan-plus_1.1.7_amd64.deb
+sudo apt install ./finan-plus_1.2.0_amd64.deb
 ```
 
 Depois é só abrir **Finan+** no menu de aplicativos, ou rodar `finan-plus`.
@@ -47,11 +50,11 @@ O arquivo `.github/workflows/release.yml` compila, roda os testes e gera o `.deb
 
 ```sh
 # depois de atualizar a versão no meson.build, src/ui/app.h, CHANGELOG.md e metainfo
-git commit -am "Finan+ para Linux 1.1.7"
+git commit -am "Finan+ para Linux 1.2.0"
 git push
 ```
 
-Enviar a tag manualmente (`git tag v1.1.7 && git push --tags`) também funciona; nesse caso a tag precisa bater com a versão do `meson.build`.
+Enviar a tag manualmente (`git tag v1.2.0 && git push --tags`) também funciona; nesse caso a tag precisa bater com a versão do `meson.build`.
 
 ## Compilar a partir do código
 
@@ -60,11 +63,11 @@ sudo apt install build-essential meson ninja-build pkg-config \
      libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev
 meson setup build
 ninja -C build
-meson test -C build          # 70 testes (núcleo igual ao do app Android, armazenamento/PIN e PDF)
+meson test -C build          # 88 testes (núcleo, período, calendário e simulador iguais aos do app Android, armazenamento/PIN e PDF)
 ./build/finan-plus
 ```
 
-Gerar o `.deb`: `packaging/build-deb.sh`, que cria `finan-plus_1.1.7_amd64.deb`.
+Gerar o `.deb`: `packaging/build-deb.sh`, que cria `finan-plus_1.2.0_amd64.deb`.
 
 Compilar com verificação de memória: `meson setup build-asan -Db_sanitize=address,undefined`.
 
@@ -78,7 +81,7 @@ src/core/      núcleo sem interface (testado): modelo, dinheiro, finanças, ope
 src/ui/        interface GTK 4 / libadwaita: janela, telas, editores, PDF, avisos
 src/main.c     ponto de entrada (finan-plus, finan-plus --avisos)
 data/          dicionário do assistente, ícones, .desktop, metainfo, manual
-tests/         testes (GLib): núcleo, armazenamento/PIN, PDF
+tests/         testes (GLib): núcleo, período/calendário/simulador, armazenamento/PIN, PDF
 tools/         ferramentas de desenvolvimento (dados de demonstração, capturas de tela)
 packaging/     script do pacote .deb
 ```

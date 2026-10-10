@@ -117,6 +117,10 @@ typedef struct {
     char *title;
     GPtrArray *lines; /* char* */
     char *why;
+    /* até 2 frases para o cartão compacto do Início (char*), nesta prioridade: contas em atraso,
+     * contas a pagar, quanto já gastou, quanto falta receber, quanto entrou. "Ainda não há despesas"
+     * e o fechamento do mês anterior ficam só no resumo completo. */
+    GPtrArray *highlights;
 } MonthReport;
 void month_report_free(MonthReport *r);
 

@@ -20,6 +20,7 @@ typedef struct { Producer produce; char *done; } SaveCtx;
 static void saved(GObject *src, GAsyncResult *res, gpointer p) {
     SaveCtx *c = p;
     g_autoptr(GError) e = NULL;
+    app_external_end();
     g_autoptr(GFile) f = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(src), res, &e);
     if (f && !APP->locked) {
         g_autofree char *data = c->produce();
@@ -46,6 +47,7 @@ static void save_as(const char *title, const char *name, const char *mime, const
     SaveCtx *c = g_new0(SaveCtx, 1);
     c->produce = produce;
     c->done = g_strdup(done);
+    app_external_begin();
     gtk_file_dialog_save(d, APP->window, APP->files, saved, c);
     g_object_unref(filters);
     g_object_unref(flt);
@@ -85,6 +87,7 @@ static void apply_restore(gpointer p) {
 static void opened(GObject *src, GAsyncResult *res, gpointer u) {
     (void)u;
     g_autoptr(GError) e = NULL;
+    app_external_end();
     g_autoptr(GFile) f = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src), res, &e);
     if (!f || APP->locked) return;
     g_autoptr(GFileInfo) info = g_file_query_info(f, G_FILE_ATTRIBUTE_STANDARD_SIZE, 0, NULL, NULL);
@@ -126,6 +129,7 @@ void data_restore_backup(void) {
     GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
     g_list_store_append(filters, flt);
     gtk_file_dialog_set_filters(d, G_LIST_MODEL(filters));
+    app_external_begin();
     gtk_file_dialog_open(d, APP->window, APP->files, opened, NULL);
     g_object_unref(filters);
     g_object_unref(flt);
@@ -143,6 +147,7 @@ static void do_wipe(gpointer u) {
     g_free(APP->prefs->pin_hash);
     APP->prefs->pin_hash = g_strdup("");
     g_ptr_array_set_size(APP->prefs->dismissed_tips, 0);
+    APP->prefs->pin_fails = 0; /* "Apagar tudo" também zera o limite de tentativas */
     prefs_save(APP->prefs, NULL);
     theme_apply(APP->state->theme);
     app_commit();

@@ -1,5 +1,57 @@
 # Changelog — Finan+ para Linux
 
+## 1.2.0 — Calendário, simulador "E se…?", Relatórios, Início e Lista renovados (10/10/2026)
+
+O Finan+ para Linux recebe tudo o que chegou ao app Android (1.1.1 a 1.4.0) e ao Finan+ web (1.2.0 e 1.3.0) desde a primeira versão, com as mesmas regras e os mesmos testes. Fica de fora só o que existe apenas no celular: acesso pela rede, gestos de deslizar e widget.
+
+**Calendário de lançamentos** (Lançamentos › Calendário; detalhes em [CALENDARIO.md](CALENDARIO.md)):
+- O mês em grade (semana começando no domingo), com o saldo de cada dia abreviado ("+5,2 mil", "−120"), pontinhos de receita (verde), despesa (vermelho) e cartão (roxo) e alerta nos dias com conta atrasada ou fatura vencida. Hoje tem contorno; o dia escolhido fica preenchido.
+- Faturas em aberto no dia do vencimento (clicar abre "Pagar fatura"). Compras no cartão aparecem no dia, mas só contam no saldo pela fatura.
+- Totais do mês (Entradas, Saídas, Resultado) e, no dia escolhido: lançamentos, saldo do dia, **saldo previsto ao fim do dia** (de hoje em diante) e botões **Receita** e **Despesa** já com a data.
+- **Clicar de novo** no dia escolhido (ou dois cliques), **botão direito** ou **segurar** abre o lançamento novo com a data; numa data futura, ele começa pendente.
+- Setas, **Page Up/Page Down** e "Voltar para hoje" trocam de mês. Calendário à esquerda e o dia à direita; em janelas estreitas, um embaixo do outro.
+- "Ocultar valores": ficam só os pontinhos. Leitor de tela: cada dia é lido como frase ("6 de outubro, terça-feira, 1 lançamento, saldo do dia menos R$ 119,90, em atraso").
+
+**Simulador "E se…?"** (em Relatórios; detalhes e contas em [SIMULADOR.md](SIMULADOR.md)): quatro perguntas — economizar por mês, quanto tempo para comprar algo, mudança na renda e antecipar uma dívida parcelada. Parte da média dos 3 meses completos anteriores (só realizados), que dá para ajustar. **Nada é gravado.** "Transformar em meta" abre o formulário de meta já preenchido.
+
+**Relatórios renovados:** mesmo ‹ mês › da aba Lançamentos (período compartilhado), botão **PDF** no título, Receitas e Despesas realizadas com comparação justa (mês atual contra os mesmos dias do mês anterior; outro mês contra o anterior inteiro; período livre contra o mesmo tamanho logo antes), cartão "Nada realizado… ainda" com o que falta receber e pagar e o link **Ver no calendário**, e texto no lugar do gráfico de evolução vazio. Saiu o cartão "Este mês × mês anterior".
+
+**Início mais enxuto:**
+- Data no formato "Sábado, 10 de outubro". Embaixo de Receitas e Despesas do mês: "a receber" e "a pagar" (inclui faturas que vencem no mês). A barra de uso das receitas só aparece quando já entrou receita.
+- Saíram os botões Receita, Despesa e Meta do cartão de saldo (os botões do topo e Ctrl+N, Ctrl+Shift+N e Ctrl+M fazem o mesmo).
+- Assistente compacto: as 2 frases mais úteis (regra em [ASSISTENTE.md](ASSISTENTE.md)), a dica principal e um link só.
+- Seções com um título só; uma conta só ocupa a linha inteira; Limites e Metas só aparecem quando existem, e antes disso o cartão **"Comece por aqui"** tem os atalhos.
+- O cartão "Vencimentos (30 dias)", que só existe no computador, continua, agora com "Ver pendentes".
+- Duas colunas a partir de 720 px: saldo, vencimentos e contas na larga; assistente, limites, metas e "Comece por aqui" na estreita.
+
+**Lançamentos › Lista mais enxuta:** ‹ mês › com o botão **Período e filtros** (datas livres, Este mês, 30 dias, Tudo e a situação, inclusive "Realizados"); busca compacta; filtros de um toque (Todos, Receitas, Despesas, Pendentes); resumo do período num cartão só, com o que está pendente e o saldo previsto; lançamentos agrupados por dia com o saldo do dia (a data não se repete em cada linha). Saiu a comparação receitas × despesas (está em Relatórios).
+
+**Segurança e acabamento (auditoria do app Android 1.1.1):**
+- **Limite de tentativas do PIN gravado no computador:** depois de 5 erros, a espera começa em 30 s e dobra até 1 hora. Fechar o app ou reiniciar o computador não zera mais a contagem (antes ficava só na memória). A tentativa é contada antes da conferência, e "Remover PIN" em Ajustes segue o mesmo limite.
+- **Bloqueio automático** saiu dos dados (que vão para o backup) e ficou só neste computador: restaurar um backup não muda mais a segurança. Novas opções: *Imediatamente* (padrão, bloqueia ao sair da janela), 1, 5, 15 ou 30 minutos, ou *Só ao abrir o app*. Quem usava "Desativado" passa para *Imediatamente*, como no Android; quem prefere o comportamento antigo escolhe *Só ao abrir o app*. Voltar do seletor de arquivos do próprio Finan+ não pede o PIN de novo (até 5 minutos).
+- **"Ocultar valores"** também oculta as porcentagens (uso das receitas, limites, variação entre períodos e a parte do que sobra no simulador).
+- **Descartar alterações?** Fechar um editor (Esc, Cancelar ou ×) com alterações não salvas pergunta antes de descartar; sem alterações, fecha direto.
+
+| Arquivo | Mudança |
+|---|---|
+| `src/core/period.c`, `period.h` (novos) | Período e setas de mês, pendências, saldo do dia, comparação dos Relatórios e regras do calendário (tradução de `Period.kt` e `MonthCalendar.kt`) |
+| `src/core/simulator.c`, `simulator.h` (novos) | Base, economizar, comprar, renda, dívidas e quitação (tradução de `Simulator.kt`) |
+| `src/core/assist_insights.c`, `assist.h` | `MonthReport.highlights`: as 2 frases do Início por prioridade |
+| `src/core/prefs.c`, `prefs.h` | Limite de tentativas do PIN gravado (relógio monotônico no mesmo boot, de parede em outro) e bloqueio automático do computador |
+| `src/ui/page_calendar.c` (novo) | Tela do calendário |
+| `src/ui/simulator.c` (novo) | Diálogo "E se…?" |
+| `src/ui/page_home.c` | Início enxuto |
+| `src/ui/page_moves.c` | Chave Lista/Calendário, ‹ mês ›, Período e filtros, filtros de um toque, resumo e lista por dia |
+| `src/ui/page_reports.c` | Relatórios renovados |
+| `src/ui/editors.c` | `editor_tx_on` (lançamento com data), `editor_goal_pre` (meta preenchida), "Descartar alterações?" |
+| `src/ui/window.c`, `lock.c`, `page_settings.c`, `data.c`, `pdf.c` | Bloqueio automático novo, limite de tentativas e tolerância do seletor de arquivos |
+| `data/icons/symbolic/` | Ícones `chevron-left` e `view-list` (Material Symbols, Apache 2.0) |
+| `tests/test_period.c` (novo), `tests/test_store.c` | 17 casos do Android 1.4.0 (período, calendário, simulador e frases do Início) e o limite de tentativas: 88 testes no total |
+
+Os dados e o formato do backup **não mudaram** (o campo `autoLock` continua sendo lido e gravado, para compatibilidade, mas não manda mais no bloqueio deste computador).
+
+Como foi verificado: os 88 testes passaram; o app foi aberto sob Xvfb (GTK 4.14, libadwaita 1.5, Ubuntu 24.04, o mesmo do GitHub Actions) com dados de demonstração, em 1440, 1100 e 700 px de largura: Início, Lista, filtros, Período e filtros, calendário (clique, dois cliques, botão direito, lançamento com data futura), Relatórios, as quatro perguntas do simulador, "Ocultar valores" e "Descartar alterações?", sem avisos do GTK.
+
 ## Ícone novo: F+ (10/10/2026)
 
 - O ícone do Finan+ passou a ser o monograma **F+**: o F em azul (`#4269d8`) com o "+" num círculo, sobre o fundo claro do app (`#eef4ff`, com os brilhos azul e rosa). É o mesmo ícone do app Android e do Finan+ web.

@@ -25,6 +25,12 @@ void show_about(void) {
     adw_about_dialog_add_legal_section(a, "libsecret e json-glib", "© The GNOME Project", GTK_LICENSE_LGPL_2_1, NULL);
     adw_about_dialog_set_release_notes_version(a, APP_VERSION);
     adw_about_dialog_set_release_notes(a,
+        "<p>1.2.0: o que chegou ao app Android e ao Finan+ web:</p>"
+        "<ul><li>Calendário de lançamentos (Lançamentos › Calendário), com o saldo de cada dia e lançar direto numa data</li>"
+        "<li>Simulador \u201cE se…?\u201d em Relatórios: economizar, comprar, mudança na renda e antecipar uma dívida, sem mexer nos dados</li>"
+        "<li>Relatórios com o mesmo ‹ mês › da Lista e comparação justa com os mesmos dias do mês anterior</li>"
+        "<li>Início e Lista mais enxutos: a receber e a pagar, assistente em 2 frases, \u201cComece por aqui\u201d, filtros de um toque e lançamentos por dia</li>"
+        "<li>Limite de tentativas do PIN gravado no computador, bloqueio automático com \u201cImediatamente\u201d e \u201cSó ao abrir o app\u201d e \u201cDescartar alterações?\u201d nos editores</li></ul>"
         "<p>1.1.8: o assistente não avisa mais que as despesas vão passar das receitas com base em uma ou duas compras (mínimo de 5 despesas no mês, 3 por categoria com limite; compra grande isolada conta uma vez).</p>"
         "<p>1.1.7: recorrência reativada retoma no mês atual; pagamento de fatura não pode ser desmarcado; backups com valores gigantes são recusados.</p>"
         "<p>1.1.6: listas arredondadas (como em Sobre) sem o quadrado claro atrás dos cantos quando o sistema usa tema próprio.</p>"

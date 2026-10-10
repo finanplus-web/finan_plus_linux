@@ -16,9 +16,46 @@ typedef struct {
     GtkWidget *content;
     GtkWidget *save;
     gboolean closing; /* já salvou: ignora cliques/Enter repetidos durante a animação de fechar */
+    char *initial;    /* retrato dos campos ao abrir, para perguntar antes de descartar alterações */
 } Frame;
 
-static void frame_close(Frame *f) { adw_dialog_close(f->dialog); }
+static void frame_free(Frame *f) {
+    g_free(f->initial);
+    g_free(f);
+}
+
+/* retrato de tudo que o usuário pode mudar no formulário (textos, seletores, chaves e números) */
+static void snapshot_walk(GtkWidget *w, GString *out) {
+    for (GtkWidget *c = gtk_widget_get_first_child(w); c; c = gtk_widget_get_next_sibling(c)) {
+        if (ADW_IS_COMBO_ROW(c)) g_string_append_printf(out, "c%u|", adw_combo_row_get_selected(ADW_COMBO_ROW(c)));
+        else if (ADW_IS_SWITCH_ROW(c)) g_string_append_printf(out, "s%d|", adw_switch_row_get_active(ADW_SWITCH_ROW(c)));
+        else if (ADW_IS_SPIN_ROW(c)) g_string_append_printf(out, "n%g|", adw_spin_row_get_value(ADW_SPIN_ROW(c)));
+        else if (GTK_IS_TOGGLE_BUTTON(c)) g_string_append_printf(out, "t%d|", gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(c)));
+        else if (GTK_IS_EDITABLE(c) && !GTK_IS_TEXT(c)) {
+            g_string_append_printf(out, "e%s|", gtk_editable_get_text(GTK_EDITABLE(c)));
+            continue; /* o GtkText de dentro repetiria o mesmo texto */
+        }
+        snapshot_walk(c, out);
+    }
+}
+
+static char *frame_snapshot(Frame *f) {
+    GString *s = g_string_new(NULL);
+    snapshot_walk(f->content, s);
+    return g_string_free(s, FALSE);
+}
+
+static void discard_ok(gpointer d) { adw_dialog_force_close(ADW_DIALOG(d)); }
+
+/* Esc, "Cancelar" ou fechar: com alterações não salvas, pergunta antes de descartar (como no app Android) */
+static void on_close_attempt(AdwDialog *d, Frame *f) {
+    if (f->closing || !f->initial) { adw_dialog_force_close(d); return; }
+    g_autofree char *now = frame_snapshot(f);
+    if (!strcmp(now, f->initial)) { adw_dialog_force_close(d); return; }
+    dlg_confirm("Descartar alterações?", "O que você digitou neste formulário não foi salvo.", "Descartar", TRUE, discard_ok, d, NULL);
+}
+
+static void frame_close(Frame *f) { f->closing = TRUE; adw_dialog_close(f->dialog); }
 
 static Frame *frame_new(const char *title, const char *subtitle, const char *save_label) {
     Frame *f = g_new0(Frame, 1);
@@ -51,11 +88,14 @@ static Frame *frame_new(const char *title, const char *subtitle, const char *sav
     adw_toolbar_view_set_content(ADW_TOOLBAR_VIEW(tv), sw);
     adw_dialog_set_child(f->dialog, tv);
     adw_dialog_set_default_widget(f->dialog, f->save);
-    g_object_set_data_full(G_OBJECT(f->dialog), "frame", f, g_free);
+    g_object_set_data_full(G_OBJECT(f->dialog), "frame", f, (GDestroyNotify)frame_free);
+    adw_dialog_set_can_close(f->dialog, FALSE);
+    g_signal_connect(f->dialog, "close-attempt", G_CALLBACK(on_close_attempt), f);
     return f;
 }
 
 static void frame_present(Frame *f, GtkWidget *focus) {
+    f->initial = frame_snapshot(f);
     adw_dialog_present(f->dialog, GTK_WIDGET(APP->window));
     if (focus) adw_dialog_set_focus(f->dialog, focus);
 }
@@ -303,8 +343,11 @@ static void tx_delete(GtkButton *b, TxEd *e) {
     dlg_confirm("Excluir lançamento", "Excluir este lançamento?", "Excluir", TRUE, tx_delete_confirmed, d, del_ctx_free);
 }
 
-void editor_tx(Kind kind, const char *id) {
+void editor_tx(Kind kind, const char *id) { editor_tx_on(kind, id ? DAY_NONE : APP->today, id); }
+
+void editor_tx_on(Kind kind, Day on, const char *id) {
     const AppState *s = APP->state;
+    if (on == DAY_NONE) on = APP->today;
     Tx *tx = id ? app_tx(s, id) : NULL;
     TxEd *e = g_new0(TxEd, 1);
     e->id = tx ? g_strdup(tx->id) : NULL;
@@ -384,10 +427,11 @@ void editor_tx(Kind kind, const char *id) {
     g_autoptr(GPtrArray) an = account_names();
     e->account = row_combo("Conta", (const char *const *)an->pdata, (int)an->len, tx ? index_of_account(tx->account_id) : 0);
     gadd(g2, e->account);
-    e->date = row_date("Data", tx ? tx->date : APP->today, FALSE);
+    e->date = row_date("Data", tx ? tx->date : on, FALSE);
     gadd(g2, e->date);
     if (!e->payment) {
-        e->paid = row_switch("Despesa já paga", NULL, tx ? tx->paid : TRUE);
+        /* numa data futura (lançado pelo calendário), o lançamento novo começa como pendente */
+        e->paid = row_switch("Despesa já paga", NULL, tx ? tx->paid : on <= APP->today);
         gadd(g2, e->paid);
     }
     if (!tx) {
@@ -444,7 +488,9 @@ static void goal_delete(GtkButton *b, GoalEd *e) {
     dlg_confirm("Excluir meta", msg, "Excluir", TRUE, goal_del, d, del_ctx_free);
 }
 
-void editor_goal(const char *id) {
+void editor_goal(const char *id) { editor_goal_pre(id, NULL, 0, 0); }
+
+void editor_goal_pre(const char *id, const char *pre_name, Cents pre_target, Cents pre_monthly) {
     Goal *g = id ? app_goal(APP->state, id) : NULL;
     GoalEd *e = g_new0(GoalEd, 1);
     e->id = g ? g_strdup(g->id) : NULL;
@@ -455,8 +501,8 @@ void editor_goal(const char *id) {
     g_object_set_data_full(G_OBJECT(f->dialog), "ed", e, (GDestroyNotify)goal_ed_free);
     GtkWidget *gr = group(f->content, NULL);
     char b1[32], b2[32];
-    e->name = row_entry("Nome", g ? g->name : "", 60);
-    e->target = row_entry("Valor da meta (R$)", g ? money_input(g->target, b1) : "", 20);
+    e->name = row_entry("Nome", g ? g->name : pre_name ? pre_name : "", 60);
+    e->target = row_entry("Valor da meta (R$)", g ? money_input(g->target, b1) : pre_target > 0 ? money_input(pre_target, b1) : "", 20);
     gadd(gr, e->name);
     gadd(gr, e->target);
     if (g) {
@@ -465,7 +511,8 @@ void editor_goal(const char *id) {
         gadd(gr, e->move);
     }
     e->deadline = row_date("Prazo (opcional)", g ? g->deadline : DAY_NONE, TRUE);
-    e->monthly = row_entry("Contribuição mensal planejada (opcional)", g && g->monthly > 0 ? money_input(g->monthly, b2) : "", 20);
+    e->monthly = row_entry("Contribuição mensal planejada (opcional)",
+                           g && g->monthly > 0 ? money_input(g->monthly, b2) : !g && pre_monthly > 0 ? money_input(pre_monthly, b2) : "", 20);
     gadd(gr, e->deadline);
     gadd(gr, e->monthly);
     g_signal_connect(f->save, "clicked", G_CALLBACK(goal_save), e);

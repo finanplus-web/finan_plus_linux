@@ -12,6 +12,8 @@
        Seus dados ficam só no seu computador, criptografados, sem conta, cadastro ou servidor.</p>
     <ul>
       <li>Saldo atual e previsto, faturas de cartão e próximos vencimentos</li>
+      <li>Calendário de lançamentos com o saldo de cada dia</li>
+      <li>Simulador "E se…?": economizar, comprar, mudança na renda e antecipar dívidas, sem mexer nos dados</li>
       <li>Relatórios por categoria e por mês, e relatório completo em PDF</li>
       <li>Assistente no computador: sugere categorias, resume o mês, dá dicas e responde perguntas — sem internet</li>
       <li>Bloqueio por PIN, ocultar valores e avisos de vencimento</li>
@@ -23,6 +25,7 @@
   <requires><display_length compare="ge">360</display_length></requires>
   <supports><control>keyboard</control><control>pointing</control><control>touch</control></supports>
   <releases>
+    <release version="1.2.0" date="2026-10-10"><description><p>Calendário de lançamentos, simulador "E se…?", Relatórios com comparação justa, Início e Lista mais enxutos, limite de tentativas do PIN gravado e bloqueio automático com "Imediatamente" e "Só ao abrir o app".</p></description></release>
     <release version="1.1.8" date="2026-10-08"><description><p>Dicas de ritmo do assistente: só projetam com dados suficientes, e uma compra grande isolada conta uma vez.</p></description></release>
     <release version="1.1.7" date="2026-10-06"><description><p>Correções de cálculo da auditoria do app Android: recorrência reativada, pagamento de fatura e valores gigantes em backups.</p></description></release>
     <release version="1.1.6" date="2026-10-05"><description><p>Listas arredondadas sem o quadrado claro atrás dos cantos quando o sistema usa tema próprio (ex.: KDE).</p></description></release>

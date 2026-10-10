@@ -68,6 +68,7 @@ typedef struct { Day from, to; gboolean txs; AdwDialog *dialog; } PdfJob;
 static void pdf_saved(GObject *src, GAsyncResult *res, gpointer u) {
     PdfJob *j = u;
     g_autoptr(GError) e = NULL;
+    app_external_end();
     g_autoptr(GFile) f = gtk_file_dialog_save_finish(GTK_FILE_DIALOG(src), res, &e);
     if (f && !APP->locked) {
         g_autofree char *path = g_file_get_path(f);
@@ -99,6 +100,7 @@ static void pdf_generate(GtkButton *btn, PdfDlg *p) {
     gtk_file_dialog_set_title(d, "Salvar relatório em PDF");
     g_autofree char *name = report_file_name(a, b);
     gtk_file_dialog_set_initial_name(d, name);
+    app_external_begin();
     gtk_file_dialog_save(d, APP->window, APP->files, pdf_saved, j);
     g_object_unref(d);
 }
