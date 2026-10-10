@@ -201,7 +201,8 @@ void app_lock(void) {
 
 void app_unlocked(void) {
     APP->locked = FALSE;
-    pin_throttle_reset(&APP->throttle);
+    pin_reset_fails(APP->prefs);
+    APP->inactive_since = 0;
     gtk_stack_set_visible_child_name(GTK_STACK(W.root_stack), "main");
     app_refresh();
 }
@@ -269,6 +270,23 @@ static void install_actions(GtkApplication *app) {
 
 /* ------------------------------------------------------------------ relógio: dia, bloqueio e avisos */
 
+#define EXTERNAL_GRACE (5 * 60 * G_USEC_PER_SEC)
+
+void app_external_begin(void) { APP->external_until = g_get_monotonic_time() + EXTERNAL_GRACE; }
+void app_external_end(void) { APP->external_until = 0; }
+
+/* Bloqueio automático (Ajustes › Privacidade, guardado só neste computador), como no app Android 1.1.1:
+ * "Imediatamente" bloqueia ao sair da janela; N minutos, depois de N minutos fora dela; "Só ao abrir o app"
+ * nunca bloqueia sozinho. O seletor de arquivos aberto pelo próprio app tem 5 minutos de tolerância. */
+static gboolean should_auto_lock(void) {
+    int mode = APP->prefs->auto_lock;
+    if (APP->locked || !app_lock_enabled() || mode == AUTOLOCK_ON_OPEN || APP->inactive_since <= 0) return FALSE;
+    gint64 now = g_get_monotonic_time();
+    gint64 limit = (gint64)MAX(mode, 0) * 60 * G_USEC_PER_SEC;
+    if (now < APP->external_until) limit = MAX(limit, EXTERNAL_GRACE);
+    return now - APP->inactive_since >= limit;
+}
+
 static gboolean tick(gpointer u) {
     (void)u;
     Day t = day_today();
@@ -279,10 +297,7 @@ static gboolean tick(gpointer u) {
         else app_refresh();
     }
     /* bloqueio automático: janela sem foco (ou minimizada) pelo tempo escolhido */
-    int mins = APP->state->auto_lock;
-    if (!APP->locked && app_lock_enabled() && mins > 0 && APP->inactive_since > 0 &&
-        g_get_monotonic_time() - APP->inactive_since >= (gint64)mins * 60 * G_USEC_PER_SEC)
-        app_lock();
+    if (should_auto_lock()) app_lock();
     notify_check(FALSE);
     return G_SOURCE_CONTINUE;
 }
@@ -290,7 +305,10 @@ static gboolean tick(gpointer u) {
 static void on_active(GObject *win, GParamSpec *ps, gpointer u) {
     (void)ps; (void)u;
     if (gtk_window_is_active(GTK_WINDOW(win))) {
+        /* voltou para a janela: confere o bloqueio automático antes de mostrar os dados */
+        if (should_auto_lock()) app_lock();
         APP->inactive_since = 0;
+        APP->external_until = 0;
         tick(NULL);
     } else if (!APP->inactive_since) APP->inactive_since = g_get_monotonic_time();
 }
@@ -554,6 +572,13 @@ void app_activate(GtkApplication *gapp) {
         if (e) problem = g_strdup(e->message);
     }
     if (!APP->state) APP->state = app_state_new();
+    /* 1.2.0: o bloqueio automático saiu dos dados (que vão para o backup) e ficou só neste computador.
+     * Migração única, como no Android: o antigo "Desativado" vira "Imediatamente". */
+    if (!problem && !APP->prefs->auto_lock_set) {
+        APP->prefs->auto_lock = APP->state->auto_lock > 0 ? APP->state->auto_lock : AUTOLOCK_IMMEDIATE;
+        APP->prefs->auto_lock_set = TRUE;
+        prefs_save(APP->prefs, NULL);
+    }
     if (!problem && generate_recurring(APP->state, APP->today) > 0) app_save(NULL);
 
     install_actions(gapp);

@@ -50,7 +50,8 @@ typedef struct {
     gboolean problem;
     /* cancelado ao bloquear: fecha seletores de arquivo abertos */
     GCancellable *files;
-    PinThrottle throttle;
+    /* até quando sair da janela não conta para o bloqueio automático (seletor de arquivos aberto pelo app) */
+    gint64 external_until;
     gint64 inactive_since; /* tempo monotônico em que a janela perdeu o foco; 0 = ativa */
 
     Filters filters;
@@ -94,6 +95,9 @@ void app_toast(const char *fmt, ...) G_GNUC_PRINTF(1, 2);
 
 /* ---- bloqueio ---- */
 void app_lock(void);
+/* antes de abrir um seletor de arquivos: voltar dele não pede o PIN (até 5 min) */
+void app_external_begin(void);
+void app_external_end(void);
 void app_unlocked(void);
 gboolean app_lock_enabled(void);
 

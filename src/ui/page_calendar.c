@@ -17,8 +17,11 @@
 
 static struct {
     GtkWidget *root, *body, *left, *right;
+    GtkWidget *cells[31]; /* botões dos dias do mês mostrado */
     gboolean built;
 } C;
+
+static void fill_right(const CalMonth *m);
 
 static Ym cur_ym(void) {
     if (APP->cal_ym == YM_NONE) { APP->cal_ym = day_ym(APP->today); APP->cal_day = APP->today; }
@@ -45,10 +48,17 @@ static void new_expense(gpointer d) { new_on(KIND_EXPENSE, GPOINTER_TO_INT(d)); 
 
 /* ---------------------------------------------------------------- dia (célula) */
 
+static void cell_set_selected(Day d, gboolean sel);
+
 static void select_day(Day d) {
     if (APP->cal_day == d) { new_on(KIND_EXPENSE, d); return; } /* clicar de novo: lançar nesta data */
+    /* troca só a marcação e o painel do dia: a grade continua a mesma, então um clique duplo cai no mesmo botão */
+    Day old = APP->cal_day;
     APP->cal_day = d;
-    page_calendar_refresh();
+    if (old != DAY_NONE && day_ym(old) == cur_ym()) cell_set_selected(old, FALSE);
+    cell_set_selected(d, TRUE);
+    g_autoptr(CalMonth) m = cal_build(APP->state, cur_ym(), APP->today);
+    fill_right(m);
 }
 
 static void on_cell(GtkButton *b, gpointer u) {
@@ -78,6 +88,23 @@ static GtkWidget *dot(const char *kind) {
     gtk_widget_add_css_class(d, kind);
     gtk_widget_set_valign(d, GTK_ALIGN_CENTER);
     return d;
+}
+
+static void cell_describe(GtkWidget *b, Day d, const CalDay *day, gboolean sel) {
+    g_autofree char *desc = cal_describe(d, day, APP->today, app_hidden());
+    g_autofree char *full = sel ? g_strdup_printf("%s. Clique de novo para lançar nesta data", desc) : g_strdup(desc);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(b), GTK_ACCESSIBLE_PROPERTY_LABEL, full, -1);
+    gtk_accessible_update_state(GTK_ACCESSIBLE(b), GTK_ACCESSIBLE_STATE_PRESSED, sel ? GTK_ACCESSIBLE_TRISTATE_TRUE : GTK_ACCESSIBLE_TRISTATE_FALSE, -1);
+    gtk_widget_set_tooltip_text(b, full);
+}
+
+static void cell_set_selected(Day d, gboolean sel) {
+    GtkWidget *b = C.cells[day_dom(d) - 1];
+    if (!b) return;
+    if (sel) gtk_widget_add_css_class(b, "sel");
+    else gtk_widget_remove_css_class(b, "sel");
+    g_autoptr(CalMonth) m = cal_build(APP->state, cur_ym(), APP->today);
+    cell_describe(b, d, cal_get(m, d), sel);
 }
 
 static GtkWidget *day_cell(Day d, const CalDay *day) {
@@ -128,11 +155,8 @@ static GtkWidget *day_cell(Day d, const CalDay *day) {
     g_signal_connect(lp, "pressed", G_CALLBACK(on_cell_long), NULL);
     gtk_widget_add_controller(b, GTK_EVENT_CONTROLLER(lp));
     /* leitor de tela: o dia como frase completa ("6 de outubro, terça-feira, 1 lançamento, …") */
-    g_autofree char *desc = cal_describe(d, day, today, app_hidden());
-    g_autofree char *full = sel ? g_strdup_printf("%s. Clique de novo para lançar nesta data", desc) : g_strdup(desc);
-    gtk_accessible_update_property(GTK_ACCESSIBLE(b), GTK_ACCESSIBLE_PROPERTY_LABEL, full, -1);
-    gtk_accessible_update_state(GTK_ACCESSIBLE(b), GTK_ACCESSIBLE_STATE_PRESSED, sel ? GTK_ACCESSIBLE_TRISTATE_TRUE : GTK_ACCESSIBLE_TRISTATE_FALSE, -1);
-    gtk_widget_set_tooltip_text(b, full);
+    cell_describe(b, d, day, sel);
+    C.cells[day_dom(d) - 1] = b;
     return b;
 }
 
@@ -190,6 +214,7 @@ static GtkWidget *month_card(const CalMonth *m) {
     }
     Day cells[42];
     int n = cal_cells(ym, cells);
+    memset(C.cells, 0, sizeof C.cells);
     for (int i = 0; i < n; i++) {
         if (cells[i] == DAY_NONE) continue;
         gtk_grid_attach(GTK_GRID(grid), day_cell(cells[i], cal_get(m, cells[i])), i % 7, 1 + i / 7, 1, 1);
@@ -334,10 +359,14 @@ void page_calendar_refresh(void) {
     gtk_orientable_set_orientation(GTK_ORIENTABLE(C.body), narrow ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL);
     gtk_box_set_homogeneous(GTK_BOX(C.body), !narrow);
     w_clear(C.left);
-    w_clear(C.right);
     w_add(C.left, month_card(m));
     w_add(C.left, month_totals(m));
-    Day sel = APP->cal_day != DAY_NONE && day_ym(APP->cal_day) == ym ? APP->cal_day : DAY_NONE;
+    fill_right(m);
+}
+
+static void fill_right(const CalMonth *m) {
+    w_clear(C.right);
+    Day sel = APP->cal_day != DAY_NONE && day_ym(APP->cal_day) == m->ym ? APP->cal_day : DAY_NONE;
     if (sel != DAY_NONE) w_add(C.right, day_box(sel, cal_get(m, sel)));
     else {
         GtkWidget *e = w_card("fin-flat");

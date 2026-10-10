@@ -7,6 +7,15 @@
 #include <string.h>
 
 #define GROUP "aparelho"
+
+const int DEVICE_AUTOLOCK_OPTIONS[6] = {AUTOLOCK_IMMEDIATE, 1, 5, 15, 30, AUTOLOCK_ON_OPEN};
+const char *const DEVICE_AUTOLOCK_LABELS[6] = {"Imediatamente", "1 minuto sem usar", "5 minutos sem usar",
+                                               "15 minutos sem usar", "30 minutos sem usar", "Só ao abrir o app"};
+
+static gboolean valid_autolock(int v) {
+    for (int i = 0; i < 6; i++) if (DEVICE_AUTOLOCK_OPTIONS[i] == v) return TRUE;
+    return FALSE;
+}
 #define MAX_DISMISSED 200
 
 static gboolean get_bool(GKeyFile *k, const char *key, gboolean def) {
@@ -42,6 +51,14 @@ Prefs *prefs_load(const char *dir) {
     p->window_maximized = get_bool(k, "janela_maximizada", FALSE);
     p->last_notified = g_key_file_get_string(k, GROUP, "ultimo_aviso", NULL);
     if (!p->last_notified) p->last_notified = g_strdup("");
+    p->auto_lock_set = g_key_file_has_key(k, GROUP, "bloqueio_automatico", NULL);
+    p->auto_lock = get_int(k, "bloqueio_automatico", AUTOLOCK_IMMEDIATE);
+    if (!valid_autolock(p->auto_lock)) p->auto_lock = AUTOLOCK_IMMEDIATE;
+    p->pin_fails = MAX(0, get_int(k, "pin_erros", 0));
+    p->pin_fail_wall = g_key_file_get_int64(k, GROUP, "pin_erro_relogio", NULL);
+    p->pin_fail_mono = g_key_file_get_int64(k, GROUP, "pin_erro_monotonico", NULL);
+    p->pin_fail_boot = g_key_file_get_string(k, GROUP, "pin_erro_boot", NULL);
+    if (!p->pin_fail_boot) p->pin_fail_boot = g_strdup("");
     p->dismissed_tips = g_ptr_array_new_with_free_func(g_free);
     gsize n = 0;
     g_auto(GStrv) tips = g_key_file_get_string_list(k, GROUP, "dicas_dispensadas", &n, NULL);
@@ -64,6 +81,11 @@ gboolean prefs_save(Prefs *p, GError **error) {
     g_key_file_set_integer(k, GROUP, "janela_altura", p->window_height);
     g_key_file_set_boolean(k, GROUP, "janela_maximizada", p->window_maximized);
     g_key_file_set_string(k, GROUP, "ultimo_aviso", p->last_notified);
+    if (p->auto_lock_set) g_key_file_set_integer(k, GROUP, "bloqueio_automatico", p->auto_lock);
+    g_key_file_set_integer(k, GROUP, "pin_erros", p->pin_fails);
+    g_key_file_set_int64(k, GROUP, "pin_erro_relogio", p->pin_fail_wall);
+    g_key_file_set_int64(k, GROUP, "pin_erro_monotonico", p->pin_fail_mono);
+    g_key_file_set_string(k, GROUP, "pin_erro_boot", p->pin_fail_boot);
     /* guarda só as últimas 200 dicas dispensadas (os ids incluem o mês: as antigas deixam de importar) */
     guint start = p->dismissed_tips->len > MAX_DISMISSED ? p->dismissed_tips->len - MAX_DISMISSED : 0;
     g_key_file_set_string_list(k, GROUP, "dicas_dispensadas", (const char *const *)p->dismissed_tips->pdata + start,
@@ -78,6 +100,7 @@ void prefs_free(Prefs *p) {
     if (!p) return;
     g_free(p->pin_hash);
     g_free(p->last_notified);
+    g_free(p->pin_fail_boot);
     g_ptr_array_unref(p->dismissed_tips);
     g_free(p->path);
     g_free(p);
@@ -117,14 +140,51 @@ gboolean pin_verify(const char *pin, const char *hash) {
     return crypto_pwhash_str_verify(hash, pin, strlen(pin)) == 0;
 }
 
-int pin_throttle_wait_seconds(const PinThrottle *t) {
-    gint64 ms = (t->wait_until - g_get_monotonic_time()) / 1000;
-    return ms > 0 ? (int)((ms + 999) / 1000) : 0;
+int pin_delay_seconds(int fails) {
+    if (fails < PIN_FREE_TRIES) return 0;
+    int k = MIN(fails - PIN_FREE_TRIES, 10);
+    return MIN(30 << k, PIN_MAX_WAIT_S);
 }
 
-void pin_throttle_fail(PinThrottle *t) {
-    t->fails++;
-    if (t->fails >= 5) t->wait_until = g_get_monotonic_time() + (gint64)30 * G_USEC_PER_SEC * (t->fails - 4);
+char *linux_boot_id(void) {
+    g_autofree char *s = NULL;
+    if (!g_file_get_contents("/proc/sys/kernel/random/boot_id", &s, NULL, NULL)) return g_strdup("");
+    return g_strdup(g_strstrip(s));
 }
 
-void pin_throttle_reset(PinThrottle *t) { t->fails = 0; t->wait_until = 0; }
+int pin_wait_seconds_at(const Prefs *p, gint64 now_wall, gint64 now_mono, const char *boot) {
+    gint64 delay = (gint64)pin_delay_seconds(p->pin_fails) * G_USEC_PER_SEC;
+    if (delay == 0) return 0;
+    gboolean same_boot = boot && *boot && p->pin_fail_boot && !strcmp(boot, p->pin_fail_boot);
+    gint64 rem = same_boot ? p->pin_fail_mono + delay - now_mono : p->pin_fail_wall + delay - now_wall;
+    rem = CLAMP(rem, 0, delay); /* atrasar o relógio não aumenta a espera além do previsto */
+    return (int)((rem + G_USEC_PER_SEC - 1) / G_USEC_PER_SEC);
+}
+
+int pin_wait_seconds(const Prefs *p) {
+    g_autofree char *boot = linux_boot_id();
+    return pin_wait_seconds_at(p, g_get_real_time(), g_get_monotonic_time(), boot);
+}
+
+void pin_attempt_at(Prefs *p, gint64 now_wall, gint64 now_mono, const char *boot) {
+    p->pin_fails++;
+    p->pin_fail_wall = now_wall;
+    p->pin_fail_mono = now_mono;
+    g_free(p->pin_fail_boot);
+    p->pin_fail_boot = g_strdup(boot ? boot : "");
+}
+
+void pin_attempt(Prefs *p) {
+    g_autofree char *boot = linux_boot_id();
+    pin_attempt_at(p, g_get_real_time(), g_get_monotonic_time(), boot);
+    prefs_save(p, NULL);
+}
+
+void pin_reset_fails(Prefs *p) {
+    if (p->pin_fails == 0) return;
+    p->pin_fails = 0;
+    p->pin_fail_wall = p->pin_fail_mono = 0;
+    g_free(p->pin_fail_boot);
+    p->pin_fail_boot = g_strdup("");
+    prefs_save(p, NULL);
+}

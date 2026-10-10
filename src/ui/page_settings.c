@@ -143,7 +143,17 @@ static void pin_first(const char *p1, gpointer u) {
 
 static void pin_remove(const char *pin, gpointer u) {
     (void)u;
+    /* "Remover PIN" segue o mesmo limite de tentativas da tela de bloqueio */
+    int wait = pin_wait_seconds(APP->prefs);
+    if (wait > 0) {
+        g_autofree char *m = wait >= 120 ? g_strdup_printf("Muitas tentativas. Aguarde %d min.", (wait + 59) / 60)
+                                         : g_strdup_printf("Muitas tentativas. Aguarde %d s.", wait);
+        dlg_notice("Não foi possível remover", m);
+        return;
+    }
+    pin_attempt(APP->prefs);
     if (!pin_verify(pin, APP->prefs->pin_hash)) { dlg_notice("Não foi possível remover", "PIN incorreto."); return; }
+    pin_reset_fails(APP->prefs);
     g_free(APP->prefs->pin_hash);
     APP->prefs->pin_hash = g_strdup("");
     save_prefs();
@@ -163,8 +173,9 @@ static void on_autolock(GObject *o, GParamSpec *p, gpointer u) {
     (void)p; (void)u;
     int i = row_combo_get(GTK_WIDGET(o));
     if (i < 0) return;
-    APP->state->auto_lock = AUTOLOCK_OPTIONS[i];
-    app_save(NULL);
+    APP->prefs->auto_lock = DEVICE_AUTOLOCK_OPTIONS[i];
+    APP->prefs->auto_lock_set = TRUE;
+    save_prefs();
     later_refresh();
 }
 
@@ -177,11 +188,11 @@ static GtkWidget *privacy(void) {
     GtkWidget *r = manage_row(list, "Bloqueio do app", pin ? "Ativo: PIN de 4 a 8 números" : "Desativado. Defina um PIN para proteger o Finan+ neste computador.");
     suffix(r, w_pill(pin ? "Remover PIN" : "Definir PIN", pin_action, NULL, NULL));
     switch_row(list, "Ocultar valores", "Esconde os valores em reais na tela e nos avisos (Ctrl+H)", APP->state->privacy, set_privacy);
-    const char *labels[5] = {"Desativado", "1 minuto sem usar", "5 minutos sem usar", "15 minutos sem usar", "30 minutos sem usar"};
     int sel = 0;
-    for (int i = 0; i < 5; i++) if (AUTOLOCK_OPTIONS[i] == APP->state->auto_lock) sel = i;
-    GtkWidget *al = row_combo("Bloqueio automático", labels, 5, sel);
-    adw_action_row_set_subtitle(ADW_ACTION_ROW(al), pin ? "Conta o tempo com a janela minimizada ou sem foco" : "Precisa de um PIN");
+    for (int i = 0; i < 6; i++) if (DEVICE_AUTOLOCK_OPTIONS[i] == APP->prefs->auto_lock) sel = i;
+    GtkWidget *al = row_combo("Bloqueio automático", DEVICE_AUTOLOCK_LABELS, 6, sel);
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(al), pin ? "Ao sair da janela (minimizar ou trocar de programa). Fica só neste computador: restaurar um backup não muda."
+                                                        : "Precisa de um PIN");
     gtk_widget_set_sensitive(al, pin);
     g_signal_connect(al, "notify::selected", G_CALLBACK(on_autolock), NULL);
     gtk_list_box_append(GTK_LIST_BOX(list), al);
