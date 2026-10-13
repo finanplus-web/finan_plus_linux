@@ -2,6 +2,8 @@
 
 ## Próxima versão — Ler fatura ou boleto
 
+- **Ler fatura ou boleto, ajustes na tela de conferência:** quando o valor e o vencimento vêm do mesmo código do boleto, o trecho aparece uma vez só ("Valor e vencimento do código do boleto"); a categoria começa em **Outros** (ou Moradia para conta de consumo, ou a sugerida pelo assistente) em vez de Alimentação; na fatura de cartão sem nenhuma compra lançada, o aviso diz "Nenhuma compra deste cartão lançada nesta fatura no Finan+" em vez de "Faltam R$ X em compras".
+
 Novo: o Finan+ lê o **valor** e o **vencimento** de uma fatura em PDF, de uma **linha digitável de boleto** ou de um **Pix copia e cola**, e preenche o lançamento para você conferir. Tudo no computador, sem internet. Detalhes em [FATURAS.md](FATURAS.md). O mesmo foi feito no app Android e no Finan+ web.
 
 - **Onde:** Novo lançamento (despesa) › **Ler fatura ou boleto**, e no cartão › **Ler a fatura deste cartão (PDF)**.

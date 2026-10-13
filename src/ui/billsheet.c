@@ -83,6 +83,7 @@ static void compare_update(BillEd *e) {
     Cents diff = bank - app;
     if (!has) verdict = g_strdup("Informe o valor para comparar.");
     else if (diff == 0) verdict = g_strdup("Confere com as compras lançadas.");
+    else if (diff > 0 && app == 0) verdict = g_strdup("Nenhuma compra deste cartão lançada nesta fatura no Finan+.");
     else if (diff > 0) { g_autofree char *d = app_money(diff); verdict = g_strdup_printf("Faltam %s em compras no Finan+.", d); }
     else { g_autofree char *d = app_money(-diff); verdict = g_strdup_printf("O Finan+ tem %s a mais do que o banco. Confira as compras do cartão.", d); }
     g_autofree char *txt = g_strdup_printf("Fatura de %s · %s\nNo Finan+: %s%s%s\n%s", mes, c->name, a, has ? "\nNo PDF: " : "", has ? b : "", verdict);
@@ -166,12 +167,14 @@ static void result_page(BillEd *e, const BillInfo *info) {
     e->due = row_date("Vencimento", info->has_due ? info->due : APP->today, FALSE);
     gadd(g, e->due);
     /* de onde veio cada valor, para conferir */
-    if (info->has_amount) {
+    /* valor e vencimento do mesmo trecho (o código do boleto): mostra uma vez só */
+    gboolean same = info->has_amount && info->has_due && info->amount_src == info->due_src && g_strcmp0(info->amount_excerpt, info->due_excerpt) == 0;
+    if (info->has_amount && !same) {
         g_autofree char *t = g_strdup_printf("Valor do %s: “%s”", bill_source_label(info->amount_src), info->amount_excerpt);
         w_add(e->res_box, w_label_wrap(t, "fin-muted caption"));
     }
     if (info->has_due) {
-        g_autofree char *t = g_strdup_printf("Vencimento do %s: “%s”", bill_source_label(info->due_src), info->due_excerpt);
+        g_autofree char *t = g_strdup_printf("%s do %s: “%s”", same ? "Valor e vencimento" : "Vencimento", bill_source_label(info->due_src), info->due_excerpt);
         w_add(e->res_box, w_label_wrap(t, "fin-muted caption"));
     }
     if (!c && info->payee && info->amount_src != BILL_SRC_PIX) {
@@ -210,10 +213,14 @@ static void result_page(BillEd *e, const BillInfo *info) {
             suggestion_free(s);
             categorizer_free(cz);
         }
+        /* sem sugestão: conta de consumo vai para Moradia; o resto começa em "Outros" (Alimentação quase nunca é boleto) */
+        int outros = -1, moradia = -1;
         for (guint i = 0; i < e->cats->len; i++) {
             if (sug && strcmp(e->cats->pdata[i], sug) == 0) sel = (int)i;
-            else if (!sug && info->segment && strcmp(e->cats->pdata[i], "Moradia") == 0) sel = (int)i;
+            if (g_ascii_strcasecmp(e->cats->pdata[i], "Outros") == 0) outros = (int)i;
+            if (strcmp(e->cats->pdata[i], "Moradia") == 0) moradia = (int)i;
         }
+        if (!sug) sel = info->segment && moradia >= 0 ? moradia : outros >= 0 ? outros : 0;
         e->cat = row_combo("Categoria", (const char *const *)e->cats->pdata, (int)e->cats->len, sel);
         if (sug) adw_action_row_set_subtitle(ADW_ACTION_ROW(e->cat), "Sugerida pelo assistente");
         gadd(g2, e->cat);
