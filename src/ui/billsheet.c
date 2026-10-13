@@ -487,7 +487,6 @@ void bill_import_open(const char *card_id) {
     gadd(g, e->pw_row);
     w_add(pwp, w_label_wrap("Muitos bancos usam os primeiros dígitos do seu CPF.", "fin-muted caption"));
     e->pw_err = w_label_wrap("", "error");
-    gtk_accessible_update_property(GTK_ACCESSIBLE(e->pw_err), GTK_ACCESSIBLE_PROPERTY_LABEL, "Erro da senha", -1);
     w_add(pwp, e->pw_err);
     e->pw_card_box = w_vbox(6);
     GtkWidget *g2 = group(e->pw_card_box, NULL);
