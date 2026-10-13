@@ -1,5 +1,28 @@
 # Changelog — Finan+ para Linux
 
+## Próxima versão — Ler fatura ou boleto
+
+Novo: o Finan+ lê o **valor** e o **vencimento** de uma fatura em PDF, de uma **linha digitável de boleto** ou de um **Pix copia e cola**, e preenche o lançamento para você conferir. Tudo no computador, sem internet. Detalhes em [FATURAS.md](FATURAS.md). O mesmo foi feito no app Android e no Finan+ web.
+
+- **Onde:** Novo lançamento (despesa) › **Ler fatura ou boleto**, e no cartão › **Ler a fatura deste cartão (PDF)**.
+- **Boleto e Pix:** a linha digitável (bancário, 47 números, e arrecadação, 48) e o Pix copia e cola têm os dígitos verificadores e o CRC conferidos; o valor e o vencimento saem do próprio código. O fator de vencimento considera a virada de 22/02/2025.
+- **Texto da fatura:** rótulos como "Total desta fatura" e "Vencimento", ignorando pagamento mínimo, limite, fatura anterior e próximo vencimento. Abaixo dos campos aparece o trecho de onde cada valor saiu.
+- **PDF com senha:** o app pede a senha e abre o arquivo só na memória (um arquivo anônimo, `memfd`, que nunca vai para o disco); nunca tenta adivinhar. PDF com proteção só contra cópia abre sem senha. A senha pode ser **lembrada por cartão** (desligado por padrão), cifrada com a chave dos dados em `faturas.fin`, fora do backup; dá para esquecer no cartão, e excluir o cartão ou "Apagar tudo" apagam junto.
+- **Boleto ou conta** vira despesa pendente no vencimento (ou já paga). **Fatura de cartão** é comparada com a fatura calculada pelo Finan+ e a diferença pode ser lançada no cartão.
+- A leitura do PDF roda numa thread à parte (a janela não trava). PDF só imagem (escaneado) mostra o aviso "PDF sem texto": a leitura de imagens (OCR) fica para uma próxima etapa.
+- **Nova dependência: Poppler** (`poppler-glib` ≥ 22.02, GPL-2.0 ou posterior). O `.deb` passa a depender de `libpoppler-glib8t64` (ou `libpoppler-glib8`), o AppImage leva a biblioteca junto e o fluxo de publicação instala `libpoppler-glib-dev`.
+- O PDF não é aberto com `poppler_document_new_from_bytes`/`_from_stream`/`_from_fd`: no Poppler 24.02 (Ubuntu 24.04) eles releem memória já liberada quando a senha está errada e podiam travar o app. O caminho usado (`/proc/self/fd` do `memfd`) foi conferido com o Valgrind.
+
+| Arquivo | Mudança |
+|---|---|
+| `src/core/bill.c`, `bill.h` | Novo: boleto, Pix, leitura do texto e comparação com a fatura do cartão |
+| `src/core/billpdf.c` | Novo: abre o PDF com o Poppler (com senha) e junta o texto em linhas pela posição |
+| `src/core/store.c`, `store.h` | Senhas lembradas (`store_bill_password`, `store_set_bill_password`); "Apagar tudo" apaga |
+| `src/ui/billsheet.c` | Novo: a tela "Ler fatura ou boleto" |
+| `src/ui/editors.c`, `pages.h` | Atalho no novo lançamento; no cartão, "Ler a fatura" e "Esquecer senha"; excluir o cartão esquece a senha |
+| `tests/test_bill.c`, `tests/fixtures/faturas/` | 11 testes, incluindo PDFs de exemplo com e sem senha (fatura fictícia) e as senhas lembradas |
+| `meson.build`, `packaging/`, `.github/workflows/release.yml`, `README.md` | Dependência do Poppler e documentação |
+
 ## Próxima versão — AppImage
 
 - **AppImage** para rodar sem instalar ou em distribuições sem `.deb`, publicado nas Releases junto com o `.deb` a partir da próxima versão. Contribuição de [@satodu](https://github.com/satodu) ([PR #1](https://github.com/finanplus-web/finan_plus_linux/pull/1)): `packaging/build-appimage.sh` e o passo no fluxo de publicação.

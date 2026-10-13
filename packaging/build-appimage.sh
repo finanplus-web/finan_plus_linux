@@ -34,7 +34,7 @@ ln -sf com.finanplus.FinanPlus.png "$ROOT/.DirIcon"
 
 # Copia bibliotecas específicas do núcleo para maior portabilidade entre distribuições
 mkdir -p "$ROOT/usr/lib"
-for lib in libsodium.so* libsecret-1.so* libjson-glib-1.0.so*; do
+for lib in libsodium.so* libsecret-1.so* libjson-glib-1.0.so* libpoppler-glib.so* libpoppler.so*; do
     for dir in /usr/lib /usr/lib/x86_64-linux-gnu /usr/lib64; do
         if [ -d "$dir" ]; then
             find "$dir" -maxdepth 1 -name "$lib" -exec cp -a -t "$ROOT/usr/lib/" {} + 2>/dev/null || true

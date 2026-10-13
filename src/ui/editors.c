@@ -205,6 +205,7 @@ typedef struct {
     GtkWidget *seg_exp, *seg_inc;
     GtkWidget *desc, *value, *cat, *method, *card, *account, *date, *paid, *reps, *mode, *recurring;
     GtkWidget *hint, *hint_title, *hint_src, *hint_why_box;
+    GtkWidget *bill; /* atalho "Ler fatura ou boleto" (só despesa nova) */
     char *hint_cat;
     Categorizer *cz[2];
 } TxEd;
@@ -233,6 +234,15 @@ static void tx_update_visibility(TxEd *e) {
         adw_preferences_row_set_title(ADW_PREFERENCES_ROW(e->paid), e->kind == KIND_INCOME ? "Receita já recebida" : "Despesa já paga");
     }
     if (e->mode) gtk_widget_set_visible(e->mode, adw_spin_row_get_value(ADW_SPIN_ROW(e->reps)) > 1);
+    if (e->bill) gtk_widget_set_visible(e->bill, e->kind == KIND_EXPENSE);
+}
+
+/* troca o formulário pela leitura da fatura (o que foi digitado aqui não é usado lá) */
+static void tx_open_bill(gpointer p) {
+    TxEd *e = p;
+    e->f->closing = TRUE;
+    adw_dialog_force_close(e->f->dialog);
+    bill_import_open(NULL);
 }
 
 static void tx_hint_update(TxEd *e);
@@ -376,6 +386,11 @@ void editor_tx_on(Kind kind, Day on, const char *id) {
         w_add(f->content, seg);
     }
 
+    if (!tx && !e->payment) {
+        /* atalho: preencher a partir de uma fatura em PDF, linha digitável do boleto ou Pix copia e cola (FATURAS.md) */
+        e->bill = w_button("Ler fatura ou boleto", "receipt-long", "pill", tx_open_bill, e, NULL);
+        w_add(f->content, e->bill);
+    }
     GtkWidget *g1 = group(f->content, NULL);
     e->desc = row_entry("Descrição", tx ? tx->desc : "", 200);
     gtk_widget_set_tooltip_text(e->desc, "Ex.: Mercado");
@@ -592,6 +607,7 @@ static void card_del(gpointer p) {
     DelCtx *d = p;
     OpErr err;
     if (!ops_delete_card(APP->state, d->id, FALSE, &err)) { dlg_notice(err.title, err.msg); return; }
+    bill_forget_password(d->id); /* a senha da fatura lembrada vai junto */
     app_commit();
     frame_close(d->f);
     app_toast("Cartão excluído");
@@ -607,6 +623,21 @@ static void card_delete(GtkButton *b, CardEd *e) {
     d->id = g_strdup(e->id);
     d->f = e->f;
     dlg_confirm("Excluir cartão", msg, "Excluir", TRUE, card_del, d, del_ctx_free);
+}
+
+static void card_open_bill(gpointer p) {
+    CardEd *e = p;
+    g_autofree char *id = g_strdup(e->id);
+    e->f->closing = TRUE;
+    adw_dialog_force_close(e->f->dialog);
+    bill_import_open(id);
+}
+
+static void card_forget_pw(gpointer p) {
+    GtkWidget *row = p;
+    bill_forget_password(g_object_get_data(G_OBJECT(row), "card-id"));
+    gtk_widget_set_visible(row, FALSE);
+    app_toast("Senha esquecida");
 }
 
 static GtkWidget *day_spin(const char *title, int v) {
@@ -634,7 +665,22 @@ void editor_card(const char *id) {
     gadd(g, e->close);
     gadd(g, e->due);
     g_signal_connect(f->save, "clicked", G_CALLBACK(card_save), e);
-    if (c) g_signal_connect(delete_button(f, "Excluir cartão"), "clicked", G_CALLBACK(card_delete), e);
+    if (c) {
+        GtkWidget *bill = w_button("Ler a fatura deste cartão (PDF)", "receipt-long", "pill", card_open_bill, e, NULL);
+        gtk_widget_set_halign(bill, GTK_ALIGN_START);
+        w_add(f->content, bill);
+        /* senha do PDF da fatura lembrada só neste computador (FATURAS.md): dá para esquecer a qualquer momento */
+        if (bill_card_has_password(c->id)) {
+            GtkWidget *row = w_hbox(10);
+            GtkWidget *l = w_label_wrap("Senha do PDF da fatura lembrada neste computador.", "fin-muted");
+            gtk_widget_set_hexpand(l, TRUE);
+            w_add(row, l);
+            w_add(row, w_button("Esquecer senha", NULL, "destructive-action pill", card_forget_pw, row, NULL));
+            g_object_set_data_full(G_OBJECT(row), "card-id", g_strdup(c->id), g_free);
+            w_add(f->content, row);
+        }
+        g_signal_connect(delete_button(f, "Excluir cartão"), "clicked", G_CALLBACK(card_delete), e);
+    }
     frame_present(f, e->name);
 }
 

@@ -51,6 +51,11 @@ char *store_quarantine(Store *st, GError **error);
 /* Apaga os dados e a chave (Ajustes › Dados › Apagar tudo). */
 gboolean store_wipe(Store *st, GError **error);
 
+/* Senha do PDF da fatura lembrada para o cartão [card_id] (FATURAS.md), cifrada com a chave dos dados
+ * em "faturas.fin", nunca no backup. g_free; NULL se não houver. [password] NULL ou "" esquece. */
+char *store_bill_password(Store *st, const char *card_id);
+gboolean store_set_bill_password(Store *st, const char *card_id, const char *password, GError **error);
+
 /* Cifra/decifra um bloco com a chave do Store (usado também pelos testes). */
 GBytes *store_seal(Store *st, const char *plain, gsize len);
 char *store_open_sealed(Store *st, const guint8 *data, gsize len, gsize *out_len);

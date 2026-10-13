@@ -14,7 +14,7 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 
 - Lista completa do que o app faz: [FUNCIONALIDADES.md](FUNCIONALIDADES.md)
 - Como o assistente decide cada coisa: [ASSISTENTE.md](ASSISTENTE.md)
-- Calendário de lançamentos: [CALENDARIO.md](CALENDARIO.md) · Simulador "E se…?": [SIMULADOR.md](SIMULADOR.md) · Recorrências previstas: [RECORRENCIAS.md](RECORRENCIAS.md)
+- Calendário de lançamentos: [CALENDARIO.md](CALENDARIO.md) · Simulador "E se…?": [SIMULADOR.md](SIMULADOR.md) · Recorrências previstas: [RECORRENCIAS.md](RECORRENCIAS.md) · Ler fatura ou boleto: [FATURAS.md](FATURAS.md)
 - O que foi feito nesta versão: [CHANGELOG.md](CHANGELOG.md)
 
 **Baixar:** [última versão (.deb e AppImage)](https://github.com/finanplus-web/finan_plus_linux/releases/latest) · **Finan+ web (PWA):** [usar no navegador](https://finanplus-web.github.io/finan_plus/) ([código-fonte](https://github.com/finanplus-web/finan_plus))
@@ -37,7 +37,7 @@ Para remover: `sudo apt remove finan-plus`. Os seus dados continuam em `~/.local
 
 Para rodar sem instalar ou em distribuições sem `.deb` (Fedora, Arch Linux, Manjaro, openSUSE Tumbleweed...). Contribuição de [@satodu](https://github.com/satodu).
 
-**Requisitos:** o AppImage leva junto as bibliotecas do núcleo (libsodium, libsecret, json-glib), mas usa o **GTK 4.12+** e o **libadwaita 1.5+** do sistema, então precisa de uma distribuição atual (ex.: Fedora 40+, Arch, Tumbleweed). Algumas distribuições também pedem o pacote `libfuse2` (ou `fuse2`) para abrir AppImages; sem ele, dá para rodar com `--appimage-extract-and-run`.
+**Requisitos:** o AppImage leva junto as bibliotecas do núcleo (libsodium, libsecret, json-glib, poppler), mas usa o **GTK 4.12+** e o **libadwaita 1.5+** do sistema, então precisa de uma distribuição atual (ex.: Fedora 40+, Arch, Tumbleweed). Algumas distribuições também pedem o pacote `libfuse2` (ou `fuse2`) para abrir AppImages; sem ele, dá para rodar com `--appimage-extract-and-run`.
 
 1. Baixe o `.AppImage` da [página de versões](https://github.com/finanplus-web/finan_plus_linux/releases/latest).
 2. Torne o arquivo executável e abra:
@@ -74,7 +74,7 @@ Enviar a tag manualmente (`git tag v1.2.0 && git push --tags`) também funciona;
 
 ```sh
 sudo apt install build-essential meson ninja-build pkg-config \
-     libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev
+     libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev libpoppler-glib-dev
 meson setup build
 ninja -C build
 meson test -C build          # 88 testes (núcleo, período, calendário e simulador iguais aos do app Android, armazenamento/PIN e PDF)
@@ -112,6 +112,7 @@ Bibliotecas usadas (todas livres e já presentes em qualquer desktop GNOME):
 | libsodium | Criptografia e hash do PIN |
 | libsecret | Chaveiro do sistema |
 | Cairo e Pango | PDF e gráficos |
+| Poppler (poppler-glib) | Ler o texto de faturas em PDF ([FATURAS.md](FATURAS.md)) |
 
 ## Licença
 
