@@ -30,7 +30,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential meson ninja-build pkg-config \
-            libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev dpkg-dev curl
+            libgtk-4-dev libadwaita-1-dev libjson-glib-dev libsodium-dev libsecret-1-dev libpoppler-glib-dev dpkg-dev curl
 
       - name: Versão e decisão de publicar
         id: ver

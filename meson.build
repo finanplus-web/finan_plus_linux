@@ -22,6 +22,8 @@ gio = dependency('gio-2.0')
 json = dependency('json-glib-1.0')
 sodium = dependency('libsodium')
 secret = dependency('libsecret-1')
+# ler fatura em PDF (FATURAS.md): só o texto, no próprio computador
+poppler = dependency('poppler-glib', version: '>= 22.02')
 gtk = dependency('gtk4', version: '>= 4.12')
 adw = dependency('libadwaita-1', version: '>= 1.5')
 m = cc.find_library('m')
@@ -34,20 +36,20 @@ core_src = files(
   'src/core/date.c', 'src/core/model.c', 'src/core/money.c', 'src/core/finance.c', 'src/core/ops.c',
   'src/core/backup.c', 'src/core/assist_text.c', 'src/core/assist_dict.c', 'src/core/assist_categorizer.c',
   'src/core/assist_insights.c', 'src/core/assist_ask.c', 'src/core/report.c', 'src/core/store.c', 'src/core/prefs.c',
-  'src/core/period.c', 'src/core/simulator.c')
+  'src/core/period.c', 'src/core/simulator.c', 'src/core/bill.c', 'src/core/billpdf.c')
 
 # núcleo sem interface (testado separadamente)
 core_lib = static_library('financore', core_src,
   include_directories: include_directories('src'),
-  dependencies: [glib, gio, json, sodium, secret, m])
+  dependencies: [glib, gio, json, sodium, secret, poppler, m])
 core_dep = declare_dependency(link_with: core_lib, include_directories: include_directories('src'),
-  dependencies: [glib, gio, json, sodium, secret, m])
+  dependencies: [glib, gio, json, sodium, secret, poppler, m])
 
 ui_src = files(
   'src/main.c', 'src/ui/window.c', 'src/ui/theme.c', 'src/ui/widgets.c', 'src/ui/page_home.c',
   'src/ui/page_moves.c', 'src/ui/page_calendar.c', 'src/ui/simulator.c', 'src/ui/page_reports.c', 'src/ui/page_assist.c', 'src/ui/page_settings.c',
   'src/ui/editors.c', 'src/ui/lock.c', 'src/ui/data.c', 'src/ui/notify.c', 'src/ui/misc.c', 'src/ui/pdf.c',
-  'src/ui/pdf_render.c')
+  'src/ui/pdf_render.c', 'src/ui/billsheet.c')
 
 executable('finan-plus', ui_src, resources,
   dependencies: [core_dep, gtk, adw],
@@ -65,7 +67,7 @@ endforeach
 install_data('data/icons/app/com.finanplus.FinanPlus.svg', install_dir: datadir / 'icons/hicolor/scalable/apps')
 install_data('data/icons/app/com.finanplus.FinanPlus-symbolic.svg', install_dir: datadir / 'icons/hicolor/symbolic/apps')
 install_data('data/dicionario.txt', install_dir: datadir / 'finan-plus')
-install_data('LICENSE', 'README.md', 'FUNCIONALIDADES.md', 'ASSISTENTE.md', 'RECORRENCIAS.md', 'CHANGELOG.md', install_dir: datadir / 'doc/finan-plus')
+install_data('LICENSE', 'README.md', 'FUNCIONALIDADES.md', 'ASSISTENTE.md', 'RECORRENCIAS.md', 'FATURAS.md', 'CHANGELOG.md', install_dir: datadir / 'doc/finan-plus')
 install_data('third_party/material-symbols/LICENSE', install_dir: datadir / 'doc/finan-plus', rename: 'LICENSE-icones-Apache-2.0')
 install_man('data/finan-plus.1')
 
@@ -78,6 +80,9 @@ test_period = executable('test-period', 'tests/test_period.c', dependencies: [co
 test('período, calendário e simulador (casos do Android 1.4.0)', test_period, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_store = executable('test-store', 'tests/test_store.c', dependencies: [core_dep])
 test('armazenamento e PIN', test_store, env: ['FINAN_PLUS_NO_KEYRING=1'])
+test_bill = executable('test-bill', 'tests/test_bill.c', dependencies: [core_dep],
+  c_args: ['-DFIXTURES="@0@"'.format(meson.current_source_dir() / 'tests/fixtures/faturas')])
+test('ler fatura ou boleto (casos do Android e da web)', test_bill, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_pdf = executable('test-pdf', 'tests/test_pdf.c', 'src/ui/pdf_render.c', 'src/ui/theme.c',
   dependencies: [core_dep, gtk, adw])
 test('relatório em PDF', test_pdf)

@@ -3,6 +3,7 @@
  */
 #include "store.h"
 #include <glib/gstdio.h>
+#include <json-glib/json-glib.h>
 #include <libsecret/secret.h>
 #include <sodium.h>
 #include <errno.h>
@@ -293,8 +294,82 @@ char *store_quarantine(Store *st, GError **error) {
     return dest;
 }
 
+/* ---------------------------------------------------------------- senhas de fatura (FATURAS.md)
+ * Senhas de PDF de fatura que a pessoa pediu para lembrar, uma por cartão. Ficam em "faturas.fin",
+ * cifradas com a mesma chave dos dados (XChaCha20-Poly1305), nunca no backup. O texto cifrado começa
+ * com BILLPW_TAG, para um arquivo nunca ser confundido com o outro. */
+#define BILLPW_TAG "finan-plus/billpw/v1\n"
+
+static char *billpw_path(const Store *st) { return g_build_filename(st->dir, "faturas.fin", NULL); }
+
+/* objeto JSON {cartão: senha}; vazio se não houver arquivo ou se ele não abrir com a chave atual */
+static JsonObject *billpw_load(Store *st) {
+    g_autofree char *path = billpw_path(st), *raw = NULL;
+    gsize len = 0;
+    JsonObject *empty = json_object_new();
+    if (!st->have_key || !g_file_get_contents(path, &raw, &len, NULL)) return empty;
+    gsize plen = 0;
+    char *plain = store_open_sealed(st, (const guint8 *)raw, len, &plen);
+    if (!plain) return empty;
+    JsonObject *obj = NULL;
+    if (g_str_has_prefix(plain, BILLPW_TAG)) {
+        g_autoptr(JsonParser) jp = json_parser_new();
+        if (json_parser_load_from_data(jp, plain + strlen(BILLPW_TAG), -1, NULL)) {
+            JsonNode *root = json_parser_get_root(jp);
+            if (root && JSON_NODE_HOLDS_OBJECT(root)) obj = json_object_ref(json_node_get_object(root));
+        }
+    }
+    sodium_memzero(plain, plen);
+    g_free(plain);
+    if (!obj) return empty;
+    json_object_unref(empty);
+    return obj;
+}
+
+char *store_bill_password(Store *st, const char *card_id) {
+    JsonObject *o = billpw_load(st);
+    char *r = NULL;
+    if (card_id && json_object_has_member(o, card_id)) {
+        JsonNode *n = json_object_get_member(o, card_id);
+        if (JSON_NODE_HOLDS_VALUE(n) && json_node_get_value_type(n) == G_TYPE_STRING) r = g_strdup(json_node_get_string(n));
+    }
+    json_object_unref(o);
+    return r;
+}
+
+gboolean store_set_bill_password(Store *st, const char *card_id, const char *password, GError **error) {
+    if (!st->have_key || !card_id) return FALSE;
+    JsonObject *o = billpw_load(st);
+    if (password && *password) json_object_set_string_member(o, card_id, password);
+    else if (json_object_has_member(o, card_id)) json_object_remove_member(o, card_id);
+    g_autofree char *path = billpw_path(st);
+    gboolean ok = TRUE;
+    if (json_object_get_size(o) == 0) {
+        if (g_file_test(path, G_FILE_TEST_EXISTS) && g_unlink(path) != 0) {
+            g_set_error(error, STORE_ERROR, STORE_ERROR_IO, "Não foi possível apagar %s: %s", path, g_strerror(errno));
+            ok = FALSE;
+        }
+    } else {
+        JsonNode *root = json_node_new(JSON_NODE_OBJECT);
+        json_node_set_object(root, o);
+        g_autofree char *json = json_to_string(root, FALSE);
+        json_node_unref(root);
+        g_autofree char *plain = g_strconcat(BILLPW_TAG, json, NULL);
+        GBytes *sealed = store_seal(st, plain, strlen(plain));
+        sodium_memzero(plain, strlen(plain));
+        sodium_memzero(json, strlen(json));
+        gsize n = 0;
+        const guint8 *d = g_bytes_get_data(sealed, &n);
+        ok = write_atomic(path, d, n, error);
+        g_bytes_unref(sealed);
+    }
+    json_object_unref(o);
+    return ok;
+}
+
 gboolean store_wipe(Store *st, GError **error) {
     g_autofree char *prev = g_strdup_printf("%s.anterior", st->data_path);
+    { g_autofree char *bp = billpw_path(st); g_unlink(bp); } /* senhas de fatura lembradas */
     if (g_file_test(st->data_path, G_FILE_TEST_EXISTS) && g_unlink(st->data_path) != 0) {
         g_set_error(error, STORE_ERROR, STORE_ERROR_IO, "Não foi possível apagar %s: %s", st->data_path, g_strerror(errno));
         return FALSE;

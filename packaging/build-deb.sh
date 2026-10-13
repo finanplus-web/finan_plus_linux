@@ -62,7 +62,7 @@ Version: $VERSION
 Architecture: $ARCH
 Maintainer: Juscelino Be <juscelino@finanplus.invalid>
 Installed-Size: $SIZE
-Depends: libc6 (>= 2.34), libglib2.0-0t64 (>= 2.76) | libglib2.0-0 (>= 2.76), libgtk-4-1 (>= 4.12), libadwaita-1-0 (>= 1.5), libjson-glib-1.0-0 (>= 1.6), libsodium23 (>= 1.0.18), libsecret-1-0 (>= 0.20), libcairo2 (>= 1.16), libpango-1.0-0 (>= 1.50), libpangocairo-1.0-0 (>= 1.50), librsvg2-common, hicolor-icon-theme
+Depends: libc6 (>= 2.34), libglib2.0-0t64 (>= 2.76) | libglib2.0-0 (>= 2.76), libgtk-4-1 (>= 4.12), libadwaita-1-0 (>= 1.5), libjson-glib-1.0-0 (>= 1.6), libsodium23 (>= 1.0.18), libsecret-1-0 (>= 0.20), libpoppler-glib8t64 (>= 22.02) | libpoppler-glib8 (>= 22.02), libcairo2 (>= 1.16), libpango-1.0-0 (>= 1.50), libpangocairo-1.0-0 (>= 1.50), librsvg2-common, hicolor-icon-theme
 Recommends: gnome-keyring | kwalletmanager | keepassxc
 Section: utils
 Priority: optional

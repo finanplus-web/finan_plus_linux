@@ -42,6 +42,10 @@ void simulator_open(void);
 GtkWidget *period_bar_new(void);
 void editor_account(const char *id);
 void editor_card(const char *id);
+/* Ler fatura ou boleto (FATURAS.md); [card_id] = já aberto na fatura deste cartão (ou NULL) */
+void bill_import_open(const char *card_id);
+gboolean bill_card_has_password(const char *card_id);
+void bill_forget_password(const char *card_id);
 void editor_recurring(const char *id);
 void editor_limit(const char *category);
 void editor_pay_invoice(const char *card_id);
