@@ -231,7 +231,7 @@ AppState *store_load(Store *st, Dropped *dropped, GError **error) {
         return NULL;
     }
     g_autoptr(GError) be = NULL;
-    AppState *s = backup_parse(plain, (gssize)plen, dropped, &be);
+    AppState *s = backup_parse_ext(plain, (gssize)plen, dropped, FALSE, &be); /* dados próprios: sem limite de quantidade */
     sodium_memzero(plain, plen);
     if (!s) {
         g_set_error(error, STORE_ERROR, STORE_ERROR_UNREADABLE, "Os dados salvos estão em um formato inválido: %s", be->message);

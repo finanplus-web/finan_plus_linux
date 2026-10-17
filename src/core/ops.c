@@ -19,6 +19,30 @@ static gboolean fail(OpErr *e, const char *title, const char *fmt, ...) {
 }
 #define REVISE "Revise os dados"
 
+/* o que vai mudar nas quantidades cabe nos limites? (só conta quando a coleção cresce) */
+static gboolean room(const AppState *s, AppCounts after, OpErr *err) {
+    const char *e = app_growth_error(app_counts(s), after);
+    return e ? fail(err, "Limite atingido", "%s Exclua itens antigos antes de criar novos.", e) : TRUE;
+}
+/* trocar valores que somam [minus] por outros que somam [plus] mantém o total no limite seguro? */
+static gboolean money_room(const AppState *s, Cents minus, Cents plus, OpErr *err) {
+    return app_money_fits(s, minus, plus) ? TRUE
+        : fail(err, "Limite financeiro excedido", "O total dos valores excede o limite seguro. Reduza algum valor antes de salvar.");
+}
+
+/* Data efetiva se realizado; data prevista se pendente (igual ao Android). */
+static void tx_dates(const Tx *old, Day requested, gboolean paid, gboolean card, Day today, Day *date, Day *sched) {
+    *sched = DAY_NONE;
+    if (card) { *date = requested; return; }
+    if (!paid) { *date = old && old->paid && old->scheduled_date != DAY_NONE ? old->scheduled_date : requested; return; }
+    if (old) {
+        if (!old->paid) { *date = today; *sched = old->date != today ? old->date : DAY_NONE; return; }
+        *date = requested; *sched = old->scheduled_date; return;
+    }
+    if (requested > today) { *date = today; *sched = requested; return; }
+    *date = requested;
+}
+
 static gboolean blank(const char *s) {
     if (!s) return TRUE;
     for (; *s; s++) if (!g_ascii_isspace(*s)) return FALSE;
@@ -40,33 +64,38 @@ static gboolean parse_int(const char *s, int *out) {
 
 /* ------------------------------------------------------------------ lançamentos */
 
-gboolean ops_save_tx(AppState *s, const char *edit_id, const TxDraft *d, OpErr *err) {
-    g_autofree char *desc = str_clean(d->desc, 200);
+gboolean ops_save_tx(AppState *s, const char *edit_id, const TxDraft *d, Day today, OpErr *err) {
     Cents value = 0;
     gboolean value_ok = money_parse(d->value, &value);
     gboolean card = d->kind == KIND_EXPENSE && d->card_id && d->card_id[0];
-    if (!*desc) return fail(err, "Campo obrigatório", "Informe uma descrição.");
     if (!value_ok || value <= 0) return fail(err, "Valor inválido", "Informe um valor maior que zero. Ex.: 59,90");
     if (d->date == DAY_NONE) return fail(err, "Data inválida", "Informe uma data válida.");
-    if (card && !app_card(s, d->card_id)) return fail(err, "Sem cartão", "Cadastre um cartão em Ajustes antes de lançar no cartão.");
+    if (card && !app_card(s, d->card_id)) return fail(err, "Sem cartão", "Cadastre um cartão em Meu dinheiro antes de lançar no cartão.");
     const char *account_id = app_account(s, d->account_id) ? d->account_id : ((Account *)s->accounts->pdata[0])->id;
     const char *category = blank(d->category) ? app_first_category(s, d->kind) : d->category;
+    /* descrição é opcional: em branco, a categoria serve de rótulo na lista */
+    g_autofree char *desc0 = str_clean(d->desc, 200);
+    g_autofree char *desc = *desc0 ? g_strdup(desc0) : str_clean(category, 200);
     const char *card_id = card ? d->card_id : "";
     gboolean paid = card || d->paid;
 
     if (edit_id) {
         Tx *t = app_tx(s, edit_id);
         if (!t) return fail(err, REVISE, "Lançamento não encontrado.");
+        if (!money_room(s, t->value, value, err)) return FALSE;
         g_autofree char *acc = g_strdup(account_id), *cat = g_strdup(category), *cid = g_strdup(card_id);
         tx_set_str(&t->desc, desc);
         t->value = value;
         tx_set_str(&t->category, cat);
-        t->date = d->date;
         tx_set_str(&t->account_id, acc);
-        if (t->card_payment[0]) t->paid = TRUE;
+        if (t->card_payment[0]) { t->paid = TRUE; t->date = d->date; }
         else {
+            Day date, sched;
+            tx_dates(t, d->date, paid, card, today, &date, &sched);
             t->kind = d->kind;
             t->paid = paid;
+            t->date = date;
+            t->scheduled_date = sched;
             tx_set_str(&t->card_id, cid);
         }
         return TRUE;
@@ -74,19 +103,34 @@ gboolean ops_save_tx(AppState *s, const char *edit_id, const TxDraft *d, OpErr *
 
     int n = CLAMP(d->reps, 1, 60);
     if (n > 1 && d->recurring) return fail(err, "Revise o lançamento", "Escolha parcelas ou repetição mensal, não os dois.");
+    Cents values[60];
     if (n > 1) {
-        Cents values[60];
         if (d->reps_mode == REPS_EACH) for (int i = 0; i < n; i++) values[i] = value;
         else split_installments(value, n, values);
         for (int i = 0; i < n; i++)
             if (values[i] <= 0) return fail(err, "Valor inválido", "O valor é pequeno demais para tantas parcelas.");
+    }
+    AppCounts after = app_counts(s);
+    after.txs += n;
+    if (d->recurring) after.recurring++;
+    if (!room(s, after, err)) return FALSE;
+    Cents added = 0;
+    for (int i = 0; i < n; i++) added += n > 1 ? values[i] : value;
+    if (!money_room(s, 0, added + (d->recurring ? value : 0), err)) return FALSE;
+    Day entry_date, sched;
+    tx_dates(NULL, d->date, paid, card, today, &entry_date, &sched);
+    if (n > 1) {
         g_autofree char *group = ids_new();
         g_autofree char *acc = g_strdup(account_id), *cat = g_strdup(category);
         for (int i = 0; i < n; i++) {
             g_autofree char *id = ids_new();
-            g_autofree char *pdesc = g_strdup_printf("%s (%d/%d)", desc, i + 1, n);
-            Tx *t = tx_new(id, d->kind, values[i], day_plus_months_clamped(d->date, i), pdesc, cat,
-                           card || (i == 0 && d->paid), acc, card_id);
+            g_autofree char *suffix = g_strdup_printf(" (%d/%d)", i + 1, n);
+            g_autofree char *base = str_clean(desc, 200 - (int)strlen(suffix));
+            g_autofree char *pdesc = g_strconcat(g_strchomp(base), suffix, NULL);
+            gboolean ipaid = card || (i == 0 && d->paid);
+            Tx *t = tx_new(id, d->kind, values[i], i == 0 ? entry_date : day_plus_months_clamped(d->date, i), pdesc, cat,
+                           ipaid, acc, card_id);
+            if (i == 0 && ipaid) t->scheduled_date = sched;
             tx_set_str(&t->group_id, group);
             t->parcel_n = i + 1;
             t->parcel_total = n;
@@ -94,7 +138,9 @@ gboolean ops_save_tx(AppState *s, const char *edit_id, const TxDraft *d, OpErr *
         }
     } else {
         g_autofree char *id = ids_new();
-        g_ptr_array_add(s->txs, tx_new(id, d->kind, value, d->date, desc, category, paid, account_id, card_id));
+        Tx *t = tx_new(id, d->kind, value, entry_date, desc, category, paid, account_id, card_id);
+        t->scheduled_date = sched;
+        g_ptr_array_add(s->txs, t);
     }
     if (d->recurring) {
         g_autofree char *rid = ids_new();
@@ -131,9 +177,18 @@ void ops_delete_tx(AppState *s, const char *id, gboolean with_later) {
  * a fatura e deixava o pagamento pendente, descontando o mesmo valor duas vezes (igual ao Android 1.1.1). */
 gboolean ops_can_toggle_paid(const Tx *t) { return t && !tx_is_card(t) && tx_is_flow(t) && !tx_is_projected(t); }
 
-void ops_toggle_paid(AppState *s, const char *id) {
+void ops_toggle_paid(AppState *s, const char *id, Day today) {
     Tx *t = app_tx(s, id);
-    if (ops_can_toggle_paid(t)) t->paid = !t->paid;
+    if (!ops_can_toggle_paid(t)) return;
+    if (t->paid) {
+        t->paid = FALSE;
+        if (t->scheduled_date != DAY_NONE) t->date = t->scheduled_date;
+        t->scheduled_date = DAY_NONE;
+    } else {
+        t->paid = TRUE;
+        t->scheduled_date = t->date != today ? t->date : DAY_NONE;
+        t->date = today;
+    }
 }
 
 /* ------------------------------------------------------------------ metas */
@@ -149,17 +204,22 @@ gboolean ops_save_goal(AppState *s, const char *id, const char *name, const char
     if (!m_ok || m < 0) return fail(err, REVISE, "Contribuição mensal inválida.");
     if (!blank(move) && !money_parse(move, &mv)) return fail(err, REVISE, "Valor a guardar inválido.");
     if (!id) {
+        AppCounts after = app_counts(s); after.goals++;
+        if (!room(s, after, err) || !money_room(s, 0, t + m, err)) return FALSE;
         g_autofree char *nid = ids_new();
         g_ptr_array_add(s->goals, goal_new(nid, n, t, 0, deadline, m));
         return TRUE;
     }
     Goal *g = app_goal(s, id);
     if (!g) return TRUE;
+    Cents saved = MAX(0, g->saved + mv);
+    if (saved > MONEY_MAX_ABS) return fail(err, "Limite financeiro excedido", "O valor guardado excede o limite seguro.");
+    if (!money_room(s, g->target + g->saved + g->monthly, t + saved + m, err)) return FALSE;
     tx_set_str(&g->name, n);
     g->target = t;
     g->deadline = deadline;
     g->monthly = m;
-    g->saved = MAX(0, g->saved + mv);
+    g->saved = saved;
     return TRUE;
 }
 
@@ -177,11 +237,14 @@ gboolean ops_save_account(AppState *s, const char *id, const char *name, const c
     if (!*n) return fail(err, REVISE, "Informe o nome da conta.");
     if (!ok) return fail(err, REVISE, "Saldo inicial inválido. Ex.: 1.250,00 ou -300");
     if (!id) {
+        AppCounts after = app_counts(s); after.accounts++;
+        if (!room(s, after, err) || !money_room(s, 0, ABS(ini), err)) return FALSE;
         g_autofree char *nid = ids_new();
         g_ptr_array_add(s->accounts, account_new(nid, n, ini));
         return TRUE;
     }
     Account *a = app_account(s, id);
+    if (a && !money_room(s, ABS(a->initial), ABS(ini), err)) return FALSE;
     if (a) { tx_set_str(&a->name, n); a->initial = ini; }
     return TRUE;
 }
@@ -227,11 +290,14 @@ gboolean ops_save_card(AppState *s, const char *id, const char *name, const char
     if (!c_ok || !d_ok || c < 1 || c > 31 || d < 1 || d > 31)
         return fail(err, REVISE, "Os dias de fechamento e vencimento devem estar entre 1 e 31.");
     if (!id) {
+        AppCounts after = app_counts(s); after.cards++;
+        if (!room(s, after, err) || !money_room(s, 0, lim, err)) return FALSE;
         g_autofree char *nid = ids_new();
         g_ptr_array_add(s->cards, card_new(nid, n, lim, c, d));
         return TRUE;
     }
     Card *k = app_card(s, id);
+    if (k && !money_room(s, k->limit, lim, err)) return FALSE;
     if (k) { tx_set_str(&k->name, n); k->limit = lim; k->close = c; k->due = d; }
     return TRUE;
 }
@@ -258,6 +324,8 @@ gboolean ops_pay_invoice(AppState *s, const char *card_id, const char *value, co
     if (!money_parse(value, &v) || v <= 0) return fail(err, REVISE, "Informe um valor maior que zero.");
     if (date == DAY_NONE) return fail(err, REVISE, "Informe uma data válida.");
     const char *acc = app_account(s, account_id) ? account_id : ((Account *)s->accounts->pdata[0])->id;
+    AppCounts after = app_counts(s); after.txs++;
+    if (!room(s, after, err) || !money_room(s, 0, v, err)) return FALSE;
     g_autofree char *id = ids_new();
     g_autofree char *desc = g_strdup_printf("Pagamento fatura %s", c->name);
     Tx *t = tx_new(id, KIND_EXPENSE, v, date, desc, CARD_PAYMENT_CAT, TRUE, acc, "");
@@ -291,10 +359,13 @@ gboolean ops_save_recurring(AppState *s, const char *id, Kind kind, const char *
     g_autofree char *cat = g_strdup(blank(category) ? app_first_category(s, kind) : category);
     if (!id) {
         if (start == DAY_NONE) return fail(err, REVISE, "Informe a data de início.");
+        AppCounts after = app_counts(s); after.recurring++;
+        if (!room(s, after, err) || !money_room(s, 0, v, err)) return FALSE;
         g_autofree char *nid = ids_new();
         g_ptr_array_add(s->recurring, recurring_new(nid, kind, ds, v, cat, acc, card, dd, TRUE, start, YM_NONE));
     } else {
         Recurring *r = app_recurring(s, id);
+        if (r && !money_room(s, r->value, v, err)) return FALSE;
         if (r) {
             r->kind = kind;
             tx_set_str(&r->desc, ds);
@@ -331,6 +402,8 @@ gboolean ops_save_limit(AppState *s, const char *old, const char *category, cons
     gboolean ok = money_parse(value, &v);
     if (blank(category)) return fail(err, REVISE, "Escolha uma categoria.");
     if (!ok || v <= 0) return fail(err, REVISE, "Informe um valor maior que zero.");
+    Limit *prev = find_limit(s, old ? old : category);
+    if (!money_room(s, prev ? prev->value : 0, v, err)) return FALSE;
     if (old && strcmp(old, category) != 0) {
         Limit *o = find_limit(s, old);
         if (o) g_ptr_array_remove(s->limits, o);
@@ -353,6 +426,8 @@ gboolean ops_add_category(AppState *s, Kind kind, const char *name, OpErr *err) 
     if (!*n) return fail(err, "Nome vazio", "Digite o nome da categoria.");
     for (guint i = 0; i < s->cats[kind]->len; i++)
         if (str_same_ci(s->cats[kind]->pdata[i], n)) return fail(err, "Categoria duplicada", "Essa categoria já existe.");
+    AppCounts after = app_counts(s); after.cats[kind]++;
+    if (!room(s, after, err)) return FALSE;
     g_ptr_array_add(s->cats[kind], g_steal_pointer(&n));
     return TRUE;
 }

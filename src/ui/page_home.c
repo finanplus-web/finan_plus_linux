@@ -1,8 +1,8 @@
 /* Finan+ — Copyright (C) 2026 Juscelino Be
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Início: saldo atual e previsto, receitas e despesas do mês, assistente, contas e cartões,
- * limites do mês, metas e próximos vencimentos. Em telas largas fica em três colunas.
+ * Início: saldo atual e previsto (com a data e o que considera), o que falta receber e pagar, os
+ * próximos 3 vencimentos e o assistente. Contas, cartões, limites e metas ficam em Meu dinheiro (1.6.0).
  */
 #include "pages.h"
 #include "widgets.h"
@@ -20,11 +20,7 @@ static char *dec(double v, int places) {
     return s;
 }
 
-static void open_goal_new(gpointer u) { (void)u; editor_goal(NULL); }
-static void open_goal(gpointer id) { editor_goal(id); }
-static void open_settings(gpointer u) { (void)u; app_show_page(PAGE_SETTINGS); }
 static void open_pay(gpointer id) { editor_pay_invoice(id); }
-static void open_limit_new(gpointer u) { (void)u; editor_limit(NULL); }
 static void open_tx(gpointer id) { Tx *t = app_tx(APP->state, id); if (t) editor_tx(t->kind, id); }
 
 /* quadro de valor; [sub_label] + [sub] aparecem embaixo quando sub > 0 ("a receber R$ …") */
@@ -59,6 +55,24 @@ static GtkWidget *stat_row(void) {
     return f;
 }
 
+static GtkWidget *pending_box(const char *icon, const char *label, Cents pending, Cents realized, const char *word,
+                              const char *color, gboolean progress) {
+    g_autofree char *cls = g_strdup_printf("fin-money-mid %s", color);
+    GtkWidget *b = stat_box_full(icon, label, pending, cls, NULL, 0, NULL);
+    Cents total = pending + realized;
+    if (progress && total > 0) {
+        double frac = (double)realized / total;
+        w_add(b, w_level(frac, NULL));
+        g_autofree char *pct = dec(frac * 100, 0);
+        g_autofree char *t = app_hidden() ? g_strdup("Progresso oculto") : g_strdup_printf("%s%% %s", pct, word);
+        w_add(b, w_label(t, "fin-muted caption"));
+    } else {
+        w_add(b, w_label(!progress && pending > 0 ? "Contas e faturas em aberto neste mês" : !progress ? "Tudo pago neste mês" : "Nada registrado neste mês",
+                         "fin-muted caption"));
+    }
+    return b;
+}
+
 static GtkWidget *hero(void) {
     const AppState *s = APP->state;
     Ym ym = day_ym(APP->today);
@@ -86,13 +100,23 @@ static GtkWidget *hero(void) {
     GtkWidget *r1 = stat_row();
     gtk_widget_set_margin_top(r1, 10);
     gtk_flow_box_append(GTK_FLOW_BOX(r1), stat_box_full(NULL, "Saldo atual", bal, bal < 0 ? "fin-money-big fin-red" : "fin-money-big", NULL, 0, NULL));
-    gtk_flow_box_append(GTK_FLOW_BOX(r1), stat_box_full(NULL, "Saldo previsto", fut, fut < 0 ? "fin-money-big fin-red" : "fin-money-big fin-accent",
-                            "no fim do mês", 0, NULL));
+    char until[11];
+    g_autofree char *fl = g_strdup_printf("Saldo previsto até %s", day_br(ym_last(ym), until));
+    GtkWidget *fb = stat_box_full(NULL, fl, fut, fut < 0 ? "fin-money-big fin-red" : "fin-money-big fin-accent", NULL, 0, NULL);
+    w_add(fb, w_label_wrap("Considera valores pendentes, faturas e recorrências até esta data.", "fin-muted caption"));
+    gtk_flow_box_append(GTK_FLOW_BOX(r1), fb);
     w_add(c, r1);
-    /* embaixo de Receitas e Despesas: o que ainda falta entrar e sair no mês (o R$ 0,00 não esconde o que vem) */
+    /* como o previsto foi calculado (só quando a conta fecha com os números da tela) */
+    if (!app_hidden() && (pend.to_receive > 0 || pend.to_pay > 0) && bal + pend.to_receive - pend.to_pay == fut) {
+        g_autofree char *b0 = money_fmt(bal), *b1 = money_fmt(pend.to_receive), *b2 = money_fmt(pend.to_pay);
+        g_autofree char *ex = g_strdup_printf("Hoje %s + %s a receber − %s a pagar", b0, b1, b2);
+        w_add(c, w_label_wrap(ex, "fin-muted caption"));
+    }
+    /* o que ainda falta entrar e sair no mês; realizado e pendente ficam separados (em despesas, sem
+     * porcentagem: faturas abertas podem corresponder a compras já lançadas e contariam duas vezes) */
     GtkWidget *r2 = stat_row();
-    gtk_flow_box_append(GTK_FLOW_BOX(r2), stat_box_full("arrow-upward", "Receitas do mês", f.income, "fin-money-mid fin-green", "a receber", pend.to_receive, "caption fin-green"));
-    gtk_flow_box_append(GTK_FLOW_BOX(r2), stat_box_full("arrow-downward", "Despesas do mês", f.expense, "fin-money-mid fin-red", "a pagar", pend.to_pay, "caption fin-red"));
+    gtk_flow_box_append(GTK_FLOW_BOX(r2), pending_box("arrow-upward", "Falta receber", pend.to_receive, f.income, "recebido", "fin-green", TRUE));
+    gtk_flow_box_append(GTK_FLOW_BOX(r2), pending_box("arrow-downward", "Falta pagar", pend.to_pay, f.expense, "pago", "fin-red", FALSE));
     w_add(c, r2);
 
     /* a barra de uso das receitas só aparece quando já entrou alguma receita */
@@ -107,7 +131,7 @@ static GtkWidget *hero(void) {
         } else {
             double used = f.expense * 100.0 / f.income;
             g_autofree char *u = dec(used, 1);
-            g_autofree char *msg = g_strdup_printf("Neste mês você usou %s%% das receitas.", u);
+            g_autofree char *msg = g_strdup_printf("Despesas equivalem a %s%% das receitas recebidas.", u);
             GtkWidget *ml = w_label_wrap(msg, "fin-muted caption heading");
             gtk_widget_set_hexpand(ml, TRUE);
             w_add(row, ml);
@@ -203,8 +227,6 @@ static GtkWidget *assistant_card(void) {
     return c;
 }
 
-/* ---------------------------------------------------------------- contas e cartões */
-
 /* título de seção com um botão à direita (ou nada) */
 static GtkWidget *section_head(const char *title, GtkWidget *action) {
     GtkWidget *head = w_hbox(8);
@@ -219,248 +241,55 @@ static GtkWidget *section_head(const char *title, GtkWidget *action) {
     return head;
 }
 
-static void open_account(gpointer id) { editor_account(id); }
-
-static GtkWidget *wallet(void) {
-    const AppState *s = APP->state;
-    GtkWidget *wrap = w_vbox(10);
-    w_add(wrap, section_head("Contas e cartões", w_pill("Gerenciar", open_settings, NULL, NULL)));
-    /* uma conta só e nenhum cartão: ela ocupa a linha inteira */
-    if (s->accounts->len == 1 && !s->cards->len) {
-        Account *a = s->accounts->pdata[0];
-        Cents b = account_balance(s, a);
-        GtkWidget *btn = gtk_button_new();
-        gtk_widget_add_css_class(btn, "fin-row");
-        gtk_widget_set_tooltip_text(btn, "Editar conta");
-        GtkWidget *row = w_hbox(12);
-        w_add(row, w_icon("account-balance", 20));
-        GtkWidget *t = w_vbox(1);
-        gtk_widget_set_hexpand(t, TRUE);
-        w_add(t, w_label(a->name, "heading"));
-        w_add(t, w_label("Conta", "fin-muted caption"));
-        w_add(row, t);
-        GtkWidget *m = w_money(b, b < 0 ? "fin-money-mid fin-red" : "fin-money-mid");
-        gtk_widget_set_valign(m, GTK_ALIGN_CENTER);
-        w_add(row, m);
-        gtk_button_set_child(GTK_BUTTON(btn), row);
-        g_signal_connect_swapped(btn, "clicked", G_CALLBACK(open_account), (gpointer)a->id);
-        w_add(wrap, btn);
-        return wrap;
-    }
-    GtkWidget *flow = gtk_flow_box_new();
-    gtk_flow_box_set_selection_mode(GTK_FLOW_BOX(flow), GTK_SELECTION_NONE);
-    gtk_flow_box_set_column_spacing(GTK_FLOW_BOX(flow), 10);
-    gtk_flow_box_set_row_spacing(GTK_FLOW_BOX(flow), 10);
-    gtk_flow_box_set_homogeneous(GTK_FLOW_BOX(flow), TRUE);
-    gtk_flow_box_set_min_children_per_line(GTK_FLOW_BOX(flow), 1);
-    gtk_flow_box_set_max_children_per_line(GTK_FLOW_BOX(flow), 6);
-    for (guint i = 0; i < s->accounts->len; i++) {
-        Account *a = s->accounts->pdata[i];
-        GtkWidget *c = w_card("fin-tight fin-flat");
-        gtk_widget_set_size_request(c, 190, -1);
-        w_add(c, w_icon_label("account-balance-wallet", "Conta", "fin-muted caption"));
-        Cents b = account_balance(s, a);
-        w_add(c, w_money(b, b < 0 ? "fin-money-mid fin-red" : "fin-money-mid"));
-        w_add(c, w_label(a->name, "fin-muted caption"));
-        gtk_flow_box_append(GTK_FLOW_BOX(flow), c);
-    }
-    for (guint i = 0; i < s->cards->len; i++) {
-        Card *k = s->cards->pdata[i];
-        CardStatus st;
-        card_status(s, k, APP->today, &st);
-        const Invoice *cur = card_status_current(&st);
-        GtkWidget *c = w_card("fin-tight fin-flat");
-        gtk_widget_set_size_request(c, 190, -1);
-        w_add(c, w_icon_label("credit-card", k->name, "fin-muted caption"));
-        w_add(c, w_money(cur ? invoice_open(cur) : 0, "fin-money-mid"));
-        g_autofree char *info = NULL;
-        if (cur) {
-            g_autofree char *ml = br_month_label(cur->ym);
-            char d[11];
-            info = g_strdup_printf("Fatura %s · vence %s%s", ml, day_br_short(cur->due, d), cur->closed ? " · fechada" : "");
-        } else info = g_strdup("Sem fatura em aberto");
-        GtkWidget *il = w_label_wrap(info, "fin-muted caption");
-        gtk_label_set_lines(GTK_LABEL(il), 2);
-        gtk_label_set_ellipsize(GTK_LABEL(il), PANGO_ELLIPSIZE_END);
-        w_add(c, il);
-        GtkWidget *av = w_hbox(4);
-        w_add(av, w_label("Disponível", "fin-muted caption"));
-        w_add(av, w_money(st.available, "fin-muted caption"));
-        w_add(c, av);
-        if (cur) {
-            GtkWidget *pay = w_button("Pagar fatura", "credit-card", "suggested-action pill", open_pay, g_strdup(k->id), g_free);
-            gtk_widget_set_halign(pay, GTK_ALIGN_START);
-            w_add(c, pay);
-        }
-        card_status_clear(&st);
-        gtk_flow_box_append(GTK_FLOW_BOX(flow), c);
-    }
-    w_add(wrap, flow);
-    return wrap;
-}
-
-/* ---------------------------------------------------------------- limites (só quando existem) */
-
-static GtkWidget *limits_card(void) {
-    const AppState *s = APP->state;
-    if (!s->limits->len) return NULL; /* enquanto não há limites: atalho em "Comece por aqui" */
-    Ym ym = day_ym(APP->today);
-    GtkWidget *c = w_card(NULL);
-    gtk_widget_set_valign(c, GTK_ALIGN_START);
-    w_add(c, section_head("Limites do mês", w_pill("Novo", open_limit_new, NULL, NULL)));
-    w_add(c, w_label_wrap("Inclui o que ainda está pendente.", "fin-muted caption"));
-    for (guint i = 0; i < s->limits->len; i++) {
-        Limit *l = s->limits->pdata[i];
-        Cents u = budget_usage(s, ym, l->category);
-        double pct = l->value > 0 ? u * 100.0 / l->value : 0;
-        GtkWidget *item = w_vbox(4);
-        gtk_widget_set_margin_top(item, 6);
-        GtkWidget *top = w_hbox(4);
-        GtkWidget *name = w_label(l->category, NULL);
-        gtk_widget_set_hexpand(name, TRUE);
-        w_add(top, name);
-        w_add(top, w_money(u, NULL));
-        w_add(top, w_label(" / ", "fin-muted"));
-        w_add(top, w_money(l->value, NULL));
-        w_add(item, top);
-        w_add(item, w_level(pct / 100, u > l->value ? "over" : pct >= 80 ? "warn" : NULL));
-        g_autofree char *p0 = dec(pct, 0);
-        /* com "Ocultar valores" a porcentagem também some (revelaria a proporção) */
-        g_autofree char *status = u > l->value ? g_strdup("Limite ultrapassado")
-                                 : pct >= 100 ? g_strdup("Limite atingido")
-                                 : pct >= 80 ? (app_hidden() ? g_strdup("Atenção: perto do limite") : g_strdup_printf("Atenção: %s%% usado", p0))
-                                 : app_hidden() ? g_strdup("Dentro do limite")
-                                                : g_strdup_printf("%s%% usado", p0);
-        w_add(item, w_label(status, u > l->value ? "fin-red caption" : "fin-muted caption"));
-        w_add(c, item);
-    }
-    return c;
-}
-
-/* ---------------------------------------------------------------- metas (só quando existem) */
-
-static void goal_clicked(GtkButton *b, gpointer u) {
-    (void)u;
-    open_goal(g_object_get_data(G_OBJECT(b), "id"));
-}
-
-static GtkWidget *goals_card(void) {
-    const AppState *s = APP->state;
-    if (!s->goals->len) return NULL; /* enquanto não há metas: atalho em "Comece por aqui" */
-    GtkWidget *c = w_card(NULL);
-    gtk_widget_set_valign(c, GTK_ALIGN_START);
-    w_add(c, section_head("Metas", w_pill("Nova", open_goal_new, NULL, NULL)));
-    for (guint i = 0; i < s->goals->len; i++) {
-        Goal *g = s->goals->pdata[i];
-        GoalPlan p = goal_plan(g, APP->today);
-        GtkWidget *btn = gtk_button_new();
-        gtk_widget_add_css_class(btn, "fin-row");
-        gtk_widget_set_tooltip_text(btn, "Editar meta, guardar ou retirar valor");
-        GtkWidget *b = w_vbox(6);
-        GtkWidget *top = w_hbox(4);
-        GtkWidget *n = w_label(g->name, "heading");
-        gtk_widget_set_hexpand(n, TRUE);
-        w_add(top, n);
-        w_add(top, w_money(g->saved, NULL));
-        w_add(top, w_label(" / ", "fin-muted"));
-        w_add(top, w_money(g->target, NULL));
-        w_add(b, top);
-        w_add(b, w_level((double)g->saved / g->target, NULL));
-        char d[11];
-        g_autofree char *info = g->deadline != DAY_NONE ? g_strdup_printf("Até %s%s", day_br(g->deadline, d), p.past_due ? " · prazo vencido" : "")
-                                                        : g_strdup_printf("Sem prazo%s", p.past_due ? " · prazo vencido" : "");
-        GString *plan = g_string_new(NULL);
-        if (p.done) g_string_append(plan, "Meta atingida");
-        else {
-            if (p.has_needed) { g_autofree char *m = app_money(p.needed); g_string_append_printf(plan, "Precisa de %s/mês", m); }
-            if (p.eta != YM_NONE) {
-                g_autofree char *ml = br_month_label(p.eta);
-                g_string_append_printf(plan, "%sPlano: conclui em %s%s", plan->len ? " · " : "", ml, p.late ? " (após o prazo)" : "");
-            }
-        }
-        GtkWidget *bottom = w_hbox(8);
-        GtkWidget *il = w_label(info, "fin-muted caption");
-        gtk_widget_set_hexpand(il, TRUE);
-        w_add(bottom, il);
-        GtkWidget *pl = w_label_wrap(plan->str, "fin-muted caption");
-        gtk_label_set_xalign(GTK_LABEL(pl), 1);
-        gtk_label_set_justify(GTK_LABEL(pl), GTK_JUSTIFY_RIGHT);
-        w_add(bottom, pl);
-        g_string_free(plan, TRUE);
-        w_add(b, bottom);
-        gtk_button_set_child(GTK_BUTTON(btn), b);
-        g_signal_connect(btn, "clicked", G_CALLBACK(goal_clicked), NULL);
-        w_add(c, btn);
-        g_object_set_data_full(G_OBJECT(btn), "id", g_strdup(g->id), g_free);
-    }
-    return c;
-}
-
-/* ---------------------------------------------------------------- Comece por aqui */
-
-static GtkWidget *start_row(const char *icon, const char *title, const char *sub, FinFn fn) {
-    GtkWidget *btn = w_button(title, NULL, "fin-row", fn, NULL, NULL);
-    GtkWidget *row = w_hbox(12);
-    w_add(row, w_icon(icon, 20));
-    GtkWidget *t = w_vbox(1);
-    gtk_widget_set_hexpand(t, TRUE);
-    w_add(t, w_label(title, "heading"));
-    w_add(t, w_label(sub, "fin-muted caption"));
-    w_add(row, t);
-    w_add(row, w_icon("chevron-right", 20));
-    gtk_button_set_child(GTK_BUTTON(btn), row);
-    return btn;
-}
-
-/* atalhos para o que ainda não foi configurado; cada linha some quando deixa de fazer sentido */
-static GtkWidget *start_card(void) {
-    const AppState *s = APP->state;
-    if (s->limits->len && s->goals->len) return NULL;
-    GtkWidget *c = w_card(NULL);
-    gtk_widget_set_valign(c, GTK_ALIGN_START);
-    w_add(c, section_head("Comece por aqui", NULL));
-    if (!s->limits->len) w_add(c, start_row("payments", "Definir um limite mensal", "Acompanhe quanto gasta por categoria", open_limit_new));
-    if (!s->goals->len) w_add(c, start_row("flag", "Criar uma meta", "Junte para um objetivo com prazo", open_goal_new));
-    return c;
-}
-
-/* ---------------------------------------------------------------- próximos vencimentos (só no Linux) */
+/* ---------------------------------------------------------------- próximos vencimentos (3) */
 
 static void open_pending(gpointer u) { (void)u; app_open_moves_pending(); }
+static void due_pay_clicked(GtkButton *b, gpointer u) { (void)u; open_pay(g_object_get_data(G_OBJECT(b), "id")); }
+static void due_tx_clicked(GtkButton *b, gpointer u) { (void)u; open_tx(g_object_get_data(G_OBJECT(b), "id")); }
 
 static GtkWidget *due_card(void) {
     const AppState *s = APP->state;
     GtkWidget *c = w_card(NULL);
     gtk_widget_set_valign(c, GTK_ALIGN_START);
-    g_autoptr(GPtrArray) r = reminders(s, APP->today, 30);
-    w_add(c, section_head("Vencimentos (30 dias)", r->len ? w_pill("Ver pendentes", open_pending, NULL, NULL) : NULL));
-    if (!r->len) w_add(c, w_label_wrap("Nada a pagar ou receber nos próximos 30 dias.", "fin-muted"));
-    for (guint i = 0; i < r->len && i < 6; i++) {
-        Reminder *m = r->pdata[i];
+    g_autoptr(GPtrArray) r = upcoming_dues(s, APP->today, 3);
+    w_add(c, section_head("Próximos vencimentos", r->len ? w_pill("Ver todos", open_pending, NULL, NULL) : NULL));
+    if (!r->len) {
         GtkWidget *row = w_hbox(10);
-        gtk_widget_set_margin_top(row, 4);
-        const char *icon = m->type == REMINDER_INVOICE_DUE ? "credit-card" : m->type == REMINDER_INCOME_DUE ? "arrow-upward" : "receipt-long";
-        w_add(row, w_icon(icon, 18));
+        GtkWidget *ok = w_icon("check", 20);
+        gtk_widget_add_css_class(ok, "fin-green");
+        w_add(row, ok);
+        GtkWidget *t = w_vbox(1);
+        w_add(t, w_label("Nenhum pagamento pendente", "heading"));
+        w_add(t, w_label_wrap("Quando houver uma conta ou fatura, ela aparecerá aqui.", "fin-muted caption"));
+        w_add(row, t);
+        w_add(c, row);
+        return c;
+    }
+    for (guint i = 0; i < r->len; i++) {
+        Reminder *m = r->pdata[i];
+        gboolean late = m->date < APP->today, inv = m->type == REMINDER_INVOICE_DUE;
+        GtkWidget *btn = gtk_button_new();
+        gtk_widget_add_css_class(btn, "fin-row");
+        gtk_widget_set_tooltip_text(btn, inv ? "Pagar fatura" : "Abrir lançamento");
+        GtkWidget *row = w_hbox(10);
+        GtkWidget *ic = w_icon(late ? "warning" : "calendar-month", 20);
+        if (late) gtk_widget_add_css_class(ic, "fin-red");
+        w_add(row, ic);
         GtkWidget *texts = w_vbox(1);
         gtk_widget_set_hexpand(texts, TRUE);
         w_add(texts, w_label(m->title, "heading"));
         char d[11];
-        g_autofree char *when = m->date < APP->today ? g_strdup_printf("Em atraso · %s", day_br(m->date, d))
-                               : m->date == APP->today ? g_strdup(m->type == REMINDER_INCOME_DUE ? "A receber hoje" : "Vence hoje")
-                                                       : g_strdup_printf("%s %s", m->type == REMINDER_INCOME_DUE ? "Recebe em" : "Vence em", day_br(m->date, d));
-        w_add(texts, w_label(when, m->date < APP->today && m->type != REMINDER_INCOME_DUE ? "fin-late caption" : "fin-muted caption"));
+        g_autofree char *when = g_strdup_printf("%s %s", late ? "Vencido em" : "Vence em", day_br(m->date, d));
+        w_add(texts, w_label(when, late ? "fin-late caption" : "fin-muted caption"));
+        w_add(texts, w_label("Ver pagamento ›", "fin-accent caption heading"));
         w_add(row, texts);
-        w_add(row, w_money(m->amount, m->type == REMINDER_INCOME_DUE ? "fin-green" : NULL));
-        GtkWidget *btn = m->type == REMINDER_INVOICE_DUE ? w_button(NULL, "chevron-right", "flat circular", open_pay, g_strdup(m->ref_id), g_free)
-                                                         : w_button(NULL, "chevron-right", "flat circular", open_tx, g_strdup(m->ref_id), g_free);
-        gtk_widget_set_tooltip_text(btn, m->type == REMINDER_INVOICE_DUE ? "Pagar fatura" : "Abrir lançamento");
-        gtk_widget_set_valign(btn, GTK_ALIGN_CENTER);
-        w_add(row, btn);
-        w_add(c, row);
-    }
-    if (r->len > 6) {
-        g_autofree char *more = g_strdup_printf("e mais %u", r->len - 6);
-        w_add(c, w_label(more, "fin-muted caption"));
+        GtkWidget *mv = w_money(m->amount, "fin-red");
+        gtk_widget_set_valign(mv, GTK_ALIGN_CENTER);
+        w_add(row, mv);
+        gtk_button_set_child(GTK_BUTTON(btn), row);
+        g_object_set_data_full(G_OBJECT(btn), "id", g_strdup(m->ref_id), g_free);
+        g_signal_connect(btn, "clicked", G_CALLBACK(inv ? due_pay_clicked : due_tx_clicked), NULL);
+        w_add(c, btn);
     }
     return c;
 }
@@ -478,8 +307,7 @@ static GtkWidget *column(GtkWidget **blocks, int n) {
 void page_home_refresh(void) {
     if (!body || !APP->state) return;
     w_clear(body);
-    GtkWidget *hero_w = hero(), *due = due_card(), *assist = assistant_card(), *wal = wallet();
-    GtkWidget *lim = limits_card(), *goals = goals_card(), *start = start_card();
+    GtkWidget *hero_w = hero(), *due = due_card(), *assist = assistant_card();
     GtkWidget *g = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(g), 18);
     gtk_grid_set_row_spacing(GTK_GRID(g), 18);
@@ -487,16 +315,15 @@ void page_home_refresh(void) {
         switch (APP->layout) {
     case LAYOUT_WIDE:
     case LAYOUT_MEDIUM: {
-        /* duas colunas (3/5 e 2/5 da largura): saldo, vencimentos e contas na larga; assistente, limites,
-         * metas e "Comece por aqui" na estreita */
-        GtkWidget *c0[] = {hero_w, due, wal}, *c1[] = {assist, lim, goals, start};
-        gtk_grid_attach(GTK_GRID(g), column(c0, 3), 0, 0, 3, 1);
-        gtk_grid_attach(GTK_GRID(g), column(c1, 4), 3, 0, 2, 1);
+        /* duas colunas (3/5 e 2/5 da largura): saldo e vencimentos na larga; assistente na estreita */
+        GtkWidget *c0[] = {hero_w, due}, *c1[] = {assist};
+        gtk_grid_attach(GTK_GRID(g), column(c0, 2), 0, 0, 3, 1);
+        gtk_grid_attach(GTK_GRID(g), column(c1, 1), 3, 0, 2, 1);
         break;
     }
     default: {
-        GtkWidget *c0[] = {hero_w, due, assist, wal, lim, goals, start};
-        gtk_grid_attach(GTK_GRID(g), column(c0, 7), 0, 0, 1, 1);
+        GtkWidget *c0[] = {hero_w, due, assist};
+        gtk_grid_attach(GTK_GRID(g), column(c0, 3), 0, 0, 1, 1);
     }
     }
     w_add(body, g);

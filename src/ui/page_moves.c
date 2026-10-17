@@ -31,26 +31,60 @@ static struct {
     GtkWidget *dlg_from, *dlg_to, *dlg_paid;
 } M;
 
+/* "Depois das despesas, sobraram R$ X." e variantes (Lançamentos e Resumo), g_free */
+char *result_text(Flow f) {
+    if (f.income == f.expense) return g_strdup("Neste período, você gastou o mesmo valor que recebeu.");
+    char b[32];
+    if (f.expense > f.income) return g_strdup_printf("Você gastou %s a mais do que recebeu.", money_format(f.expense - f.income, b));
+    return g_strdup_printf("Depois das despesas, sobraram %s.", money_format(f.income - f.expense, b));
+}
+
 /* ---------------------------------------------------------------- linha de lançamento */
 
 const char *tx_status(const Tx *t, gboolean *late) {
     if (late) *late = FALSE;
-    if (tx_is_projected(t)) return "Previsto · recorrência";
+    /* situação por escrito (1.6.0, como no Android) */
+    if (tx_is_projected(t)) return "Prevista · recorrência";
     if (!tx_is_flow(t)) return "Pag. fatura";
-    if (tx_is_card(t)) return "Cartão";
-    if (t->paid) return t->kind == KIND_INCOME ? "Recebido" : "Pago";
-    if (t->date < APP->today) { if (late) *late = TRUE; return "Em atraso"; }
+    if (tx_is_card(t)) return "No cartão";
+    if (t->paid) return t->kind == KIND_INCOME ? "Recebida" : "Paga";
+    if (t->date < APP->today) { if (late) *late = TRUE; return t->kind == KIND_INCOME ? "Vencida · a receber" : "Vencida · a pagar"; }
     return t->kind == KIND_INCOME ? "A receber" : "A pagar";
 }
 
-static void toggle_paid(gpointer id) {
+/* Desfazer: a mesma operação de novo volta ao que era (a data prevista é restaurada) */
+static void undo_toggle(AdwToast *toast, gpointer u) {
+    (void)u;
+    const char *id = g_object_get_data(G_OBJECT(toast), "id");
+    if (!id || !app_tx(APP->state, id)) return;
+    ops_toggle_paid(APP->state, id, APP->today);
+    app_commit();
+}
+
+static void do_toggle(gpointer id) {
     Tx *t = app_tx(APP->state, id);
     if (!t) return;
-    ops_toggle_paid(APP->state, id);
-    gboolean paid = t->paid;
-    gboolean inc = t->kind == KIND_INCOME;
+    ops_toggle_paid(APP->state, id, APP->today);
+    gboolean paid = t->paid, inc = t->kind == KIND_INCOME;
     app_commit();
-    app_toast(paid ? (inc ? "Marcado como recebido" : "Marcado como pago") : (inc ? "Marcado como a receber" : "Marcado como a pagar"));
+    AdwToast *toast = adw_toast_new(paid ? (inc ? "Movimentação marcada como recebido." : "Movimentação marcada como pago.")
+                                         : "Movimentação voltou para pendente.");
+    adw_toast_set_timeout(toast, 6);
+    adw_toast_set_button_label(toast, "Desfazer");
+    g_object_set_data_full(G_OBJECT(toast), "id", g_strdup(id), g_free);
+    g_signal_connect(toast, "button-clicked", G_CALLBACK(undo_toggle), NULL);
+    adw_toast_overlay_add_toast(APP->toasts, toast);
+}
+
+/* confirmar pede confirmação e oferece Desfazer logo depois */
+static void toggle_paid(gpointer id) {
+    Tx *t = app_tx(APP->state, id);
+    if (!t || !ops_can_toggle_paid(t)) return;
+    const char *action = t->kind == KIND_INCOME ? "recebido" : "pago";
+    g_autofree char *msg = t->paid ? g_strdup_printf("Marcar “%s” como pendente novamente?", t->desc)
+                                   : g_strdup_printf("Marcar “%s” como %s?", t->desc, action);
+    dlg_confirm(t->paid ? "Desfazer confirmação?" : t->kind == KIND_INCOME ? "Confirmar recebimento?" : "Confirmar pagamento?",
+                msg, t->paid ? "Marcar pendente" : "Confirmar", t->paid, do_toggle, g_strdup(id), g_free);
 }
 
 /* Linha de lançamento. [with_date]: FALSE quando o dia já aparece no título do grupo (lista por dia e calendário). */
@@ -69,7 +103,10 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
     GtkWidget *texts = w_vbox(2);
     gtk_widget_set_hexpand(texts, TRUE);
     w_add(texts, w_label(t->desc, "heading"));
-    g_autofree char *l2 = g_strdup_printf("%s · %s", t->category, where);
+    char sd[11];
+    /* lançamento realizado em outro dia: mostra também a data prevista original */
+    g_autofree char *l2 = t->paid && t->scheduled_date != DAY_NONE ? g_strdup_printf("%s · %s · previsto %s", t->category, where, day_br(t->scheduled_date, sd))
+                                                                   : g_strdup_printf("%s · %s", t->category, where);
     w_add(texts, w_label(l2, "fin-muted caption"));
     char d[11];
     if (!wide) {
@@ -85,7 +122,7 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
             w_add(row, dl);
         }
         GtkWidget *sl = w_label(status, late ? "fin-late" : "fin-muted");
-        gtk_widget_set_size_request(sl, 100, -1);
+        gtk_widget_set_size_request(sl, 130, -1);
         w_add(row, sl);
     }
     g_autofree char *v = app_money(t->value);
@@ -113,7 +150,7 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
         if (!t->paid) gtk_button_set_label(GTK_BUTTON(chk), "");
         gtk_widget_set_valign(chk, GTK_ALIGN_CENTER);
         g_autofree char *tip = g_strdup_printf("%s: %s", t->kind == KIND_INCOME ? "Recebida" : "Paga", t->desc);
-        gtk_widget_set_tooltip_text(chk, t->paid ? (t->kind == KIND_INCOME ? "Recebido — clique para marcar como a receber" : "Pago — clique para marcar como a pagar")
+        gtk_widget_set_tooltip_text(chk, t->paid ? (t->kind == KIND_INCOME ? "Desfazer confirmação: recebido" : "Desfazer confirmação: pago")
                                                  : (t->kind == KIND_INCOME ? "Marcar como recebido" : "Marcar como pago"));
         gtk_accessible_update_property(GTK_ACCESSIBLE(chk), GTK_ACCESSIBLE_PROPERTY_LABEL, tip, -1);
         w_add(row, chk);
@@ -288,7 +325,7 @@ static void open_filters(gpointer u) {
     gtk_widget_set_margin_end(c, 18);
     gtk_widget_set_margin_top(c, 8);
     gtk_widget_set_margin_bottom(c, 18);
-    w_add(c, w_label_wrap("O período também vale para Relatórios. As mudanças valem na hora.", "fin-muted"));
+    w_add(c, w_label_wrap("O período também vale para o Resumo. As mudanças valem na hora.", "fin-muted"));
     GtkWidget *dates = w_hbox(10);
     gtk_box_set_homogeneous(GTK_BOX(dates), TRUE);
     M.dlg_from = date_field("De", APP->filters.from, dlg_dates_changed, NULL);
@@ -350,11 +387,9 @@ static void build_totals(void) {
     w_add(row, sum_col("Saldo", bal, bal < 0 ? "fin-money-mid fin-red" : "fin-money-mid", "previsto", forecast,
                        forecast < 0 ? "caption fin-red" : "caption fin-accent", has_pend));
     w_add(card, row);
-    /* com "Ocultar valores" a porcentagem também some */
-    if (f.income > 0 && !app_hidden()) {
-        g_autofree char *pct = g_strdup_printf("%.1f", f.expense * 100.0 / f.income);
-        for (char *q = pct; *q; q++) if (*q == '.') *q = ',';
-        g_autofree char *note = g_strdup_printf("As despesas são %s%% das receitas do período.", pct);
+    /* "Depois das despesas, sobraram R$ X." (some com "Ocultar valores") */
+    if ((f.income > 0 || f.expense > 0) && !app_hidden()) {
+        g_autofree char *note = result_text(f);
         GtkWidget *nl = w_label_wrap(note, "fin-muted caption");
         gtk_widget_set_margin_top(nl, 6);
         w_add(card, nl);
@@ -543,6 +578,9 @@ static GtkWidget *view_btn(const char *icon, const char *label, int which) {
     return b;
 }
 
+static void empty_expense(gpointer u) { (void)u; editor_tx(KIND_EXPENSE, NULL); }
+static void empty_income(gpointer u) { (void)u; editor_tx(KIND_INCOME, NULL); }
+
 GtkWidget *page_moves_new(void) {
     M.root = w_vbox(0);
 
@@ -656,9 +694,14 @@ GtkWidget *page_moves_new(void) {
     gtk_widget_add_css_class(eic, "fin-muted");
     w_add(empty, eic);
     w_add(empty, w_label("Nenhum lançamento neste período", "title-3"));
-    GtkWidget *ed = w_label_wrap("Troque o mês, ajuste os filtros ou adicione uma movimentação (Ctrl+N).", "fin-muted");
+    GtkWidget *ed = w_label_wrap("Troque o mês ou ajuste os filtros. Você também pode começar por aqui:", "fin-muted");
     gtk_label_set_justify(GTK_LABEL(ed), GTK_JUSTIFY_CENTER);
     w_add(empty, ed);
+    GtkWidget *eb = w_hbox(8);
+    gtk_widget_set_halign(eb, GTK_ALIGN_CENTER);
+    w_add(eb, w_button("Despesa", "arrow-downward", "fin-pill", empty_expense, NULL, NULL));
+    w_add(eb, w_button("Receita", "arrow-upward", "fin-pill", empty_income, NULL, NULL));
+    w_add(empty, eb);
     w_add(lbox, M.list);
     w_add(lbox, empty);
     M.more = gtk_button_new_with_label("Mostrar mais");

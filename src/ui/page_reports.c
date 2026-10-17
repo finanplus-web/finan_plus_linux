@@ -1,7 +1,7 @@
 /* Finan+ — Copyright (C) 2026 Juscelino Be
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Relatórios: o mesmo período da aba Lançamentos (‹ mês › e "Período e filtros"), só valores realizados.
+ * Resumo (antes "Relatórios"): o mesmo período da aba Lançamentos (‹ mês › e "Período e filtros"), só valores realizados.
  * Resumo com comparação justa (mês atual contra os mesmos dias do mês anterior), atalho para o
  * simulador "E se…?", despesas por categoria (rosca e barras, com limites) e evolução dos últimos 6 meses.
  * Sem nada realizado no período, mostra o que está pendente e leva ao calendário.
@@ -14,6 +14,7 @@
 #include "core/report.h"
 #include "core/period.h"
 #include <math.h>
+#include <string.h>
 
 static GtkWidget *body;
 
@@ -300,19 +301,190 @@ static GtkWidget *summary(void) {
 
 static void open_sim(gpointer u) { (void)u; simulator_open(); }
 
-/* atalho para o simulador "E se…?" */
+/* resultado do período ("sobraram R$ X") — só quando houve algo realizado */
+static GtkWidget *result_card(Flow fl) {
+    GtkWidget *c = w_card("fin-tight");
+    Cents res = flow_balance(fl);
+    w_add(c, w_label("Resultado do período", "fin-muted caption"));
+    w_add(c, w_money(res, res < 0 ? "fin-money-big fin-red" : "fin-money-big fin-accent"));
+    g_autofree char *t = app_hidden() ? g_strdup("Os relatórios consideram somente valores já pagos ou recebidos.") : result_text(fl);
+    w_add(c, w_label_wrap(t, "fin-muted caption"));
+    return c;
+}
+
+/* ---------------------------------------------------------------- fluxo do dinheiro */
+
+typedef struct { int n; Cents scale; Cents v[64]; guint32 color[64]; } FlowBar;
+
+static void draw_flow(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer p) {
+    (void)a;
+    FlowBar *fb = p;
+    const FinPalette *pal = theme_palette();
+    double r = h / 2.0, x = 0;
+    cairo_save(cr);
+    cairo_new_path(cr);
+    cairo_arc(cr, r, r, r, G_PI / 2, 3 * G_PI / 2);
+    cairo_arc(cr, w - r, r, r, -G_PI / 2, G_PI / 2);
+    cairo_close_path(cr);
+    cairo_clip(cr);
+    theme_cairo(cr, pal->track);
+    cairo_paint(cr);
+    for (int i = 0; i < fb->n; i++) {
+        double ww = (double)w * fb->v[i] / (fb->scale > 0 ? fb->scale : 1);
+        theme_cairo(cr, fb->color[i]);
+        cairo_rectangle(cr, x, 0, ww, h);
+        cairo_fill(cr);
+        x += ww;
+    }
+    cairo_restore(cr);
+}
+
+static GtkWidget *flow_bar(FlowBar *fb) {
+    GtkWidget *da = gtk_drawing_area_new();
+    gtk_widget_set_size_request(da, -1, 14);
+    gtk_widget_set_hexpand(da, TRUE);
+    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(da), draw_flow, fb, g_free);
+    if (app_hidden()) gtk_widget_set_opacity(da, 0.25);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(da), GTK_ACCESSIBLE_PROPERTY_LABEL, "Gráfico de barras proporcionais do fluxo de dinheiro", -1);
+    return da;
+}
+
+static void dot_draw(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer p) {
+    (void)a;
+    theme_cairo(cr, GPOINTER_TO_UINT(p));
+    cairo_arc(cr, w / 2.0, h / 2.0, MIN(w, h) / 2.0, 0, 2 * G_PI);
+    cairo_fill(cr);
+}
+
+static void flow_legend(GtkWidget *c, FlowBar *fb, char **names, Cents total) {
+    for (int i = 0; i < fb->n; i++) {
+        GtkWidget *row = w_hbox(8);
+        GtkWidget *dot = gtk_drawing_area_new();
+        gtk_widget_set_size_request(dot, 12, 12);
+        gtk_widget_set_valign(dot, GTK_ALIGN_CENTER);
+        gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(dot), dot_draw, GUINT_TO_POINTER(fb->color[i]), NULL);
+        w_add(row, dot);
+        GtkWidget *n = w_label(names[i], NULL);
+        gtk_label_set_ellipsize(GTK_LABEL(n), PANGO_ELLIPSIZE_END);
+        gtk_widget_set_hexpand(n, TRUE);
+        gtk_label_set_xalign(GTK_LABEL(n), 0);
+        w_add(row, n);
+        w_add(row, w_money(fb->v[i], "heading"));
+        g_autofree char *pct = app_hidden() || total <= 0 ? g_strdup("••%") : g_strdup_printf("%d%%", (int)MIN(100, fb->v[i] * 100 / total));
+        GtkWidget *pl = w_label(pct, "fin-muted caption");
+        gtk_widget_set_size_request(pl, 40, -1);
+        gtk_label_set_xalign(GTK_LABEL(pl), 1);
+        w_add(row, pl);
+        w_add(c, row);
+    }
+}
+
+/* De onde veio (receitas realizadas por categoria) e para onde foi (despesas por categoria e a sobra).
+ * Não liga uma receita a uma despesa específica (igual ao Android 1.6.0). */
+static GtkWidget *flow_card(Flow fl) {
+    const Filters *f = &APP->filters;
+    static const guint32 COLORS[6] = {0xFF00AFC1, 0, 0xFF278AE5, 1, 0xFF8C9499, 2}; /* 0/1/2 = vermelho, verde, destaque do tema */
+    const FinPalette *pal = theme_palette();
+#define FLOW_COLOR(i) (COLORS[(i) % 6] > 2 ? COLORS[(i) % 6] : COLORS[(i) % 6] == 0 ? pal->red : COLORS[(i) % 6] == 1 ? pal->green : pal->accent)
+    GtkWidget *c = w_card(NULL);
+    gtk_widget_set_valign(c, GTK_ALIGN_START);
+    w_add(c, w_section_head("Análises", "Fluxo do dinheiro"));
+    w_add(c, w_label_wrap("De onde veio (em cima) e para onde foi (embaixo).", "fin-muted caption"));
+    Cents scale = MAX(MAX(fl.income, fl.expense), 1);
+
+    /* receitas realizadas (sem pagamento de fatura) por categoria, maiores primeiro */
+    g_autoptr(GPtrArray) txs = in_range(f->from, f->to);
+    g_autoptr(GHashTable) by = g_hash_table_new(g_str_hash, g_str_equal);
+    g_autoptr(GPtrArray) order = g_ptr_array_new();
+    for (guint i = 0; i < txs->len; i++) {
+        Tx *t = txs->pdata[i];
+        if (t->kind != KIND_INCOME || !t->paid || !tx_is_flow(t)) continue;
+        const char *k = t->category[0] ? t->category : "Sem categoria";
+        gpointer cur = g_hash_table_lookup(by, k);
+        if (!cur && !g_hash_table_contains(by, k)) g_ptr_array_add(order, (gpointer)k);
+        Cents *slot = cur;
+        if (!slot) { slot = g_new0(Cents, 1); g_hash_table_insert(by, (gpointer)k, slot); }
+        *slot += t->value;
+    }
+    FlowBar *in = g_new0(FlowBar, 1);
+    char *in_names[64];
+    /* ordena por valor decrescente */
+    for (guint i = 0; i < order->len && in->n < 64; i++) {
+        const char *best = NULL; Cents bv = -1; guint bi = 0;
+        for (guint j = 0; j < order->len; j++) {
+            const char *k = order->pdata[j];
+            if (!k) continue;
+            Cents v = *(Cents *)g_hash_table_lookup(by, k);
+            if (v > bv) { bv = v; best = k; bi = j; }
+        }
+        if (!best) break;
+        order->pdata[bi] = NULL;
+        in_names[in->n] = (char *)best;
+        in->v[in->n] = bv;
+        in->color[in->n] = FLOW_COLOR(in->n);
+        in->n++;
+    }
+    in->scale = scale;
+    w_add(c, w_label("De onde veio", "heading"));
+    w_add(c, flow_bar(in));
+    flow_legend(c, in, in_names, fl.income);
+    GHashTableIter it; gpointer kk, vv;
+    g_hash_table_iter_init(&it, by);
+    while (g_hash_table_iter_next(&it, &kk, &vv)) g_free(vv);
+
+    g_autofree char *inc_txt = money_fmt(fl.income);
+    g_autofree char *mid = app_hidden() ? g_strdup("Entradas ocultas") : g_strdup_printf("Entrou %s", inc_txt);
+    GtkWidget *pill = w_label(mid, "fin-flow-pill");
+    gtk_widget_set_halign(pill, GTK_ALIGN_CENTER);
+    gtk_widget_set_margin_top(pill, 8);
+    gtk_widget_set_margin_bottom(pill, 8);
+    w_add(c, pill);
+
+    w_add(c, w_label("Para onde foi", "heading"));
+    g_autoptr(GPtrArray) cats = category_totals(APP->state, f->from, f->to);
+    FlowBar *out = g_new0(FlowBar, 1);
+    char *out_names[64];
+    for (guint i = 0; i < cats->len && out->n < 63; i++) {
+        CatTotal *ct = cats->pdata[i];
+        out_names[out->n] = ct->name;
+        out->v[out->n] = ct->value;
+        out->color[out->n] = FLOW_COLOR(out->n + 1);
+        out->n++;
+    }
+    Cents left = MAX(0, fl.income - fl.expense);
+    if (left > 0) { out_names[out->n] = "Sobrou"; out->v[out->n] = left; out->color[out->n] = pal->green; out->n++; }
+    out->scale = scale;
+    if (!out->n) {
+        g_free(out);
+        w_add(c, w_label_wrap("Nenhuma despesa realizada; todo o valor recebido permaneceu disponível.", "fin-muted caption"));
+    } else {
+        int n = out->n;
+        Cents vals[64]; guint32 cols[64];
+        memcpy(vals, out->v, sizeof(Cents) * n); memcpy(cols, out->color, sizeof(guint32) * n);
+        w_add(c, flow_bar(out)); /* out passa a ser da área de desenho */
+        FlowBar tmp = {.n = n, .scale = scale};
+        memcpy(tmp.v, vals, sizeof(Cents) * n); memcpy(tmp.color, cols, sizeof(guint32) * n);
+        flow_legend(c, &tmp, out_names, MAX(fl.income, fl.expense));
+    }
+    if (fl.expense > fl.income) w_add(c, w_label_wrap("As despesas passaram o valor recebido neste período.", "fin-red caption"));
+    w_add(c, w_label_wrap("Considera apenas lançamentos pagos ou recebidos; não associa uma entrada a uma despesa específica.", "fin-muted caption"));
+#undef FLOW_COLOR
+    return c;
+}
+
+/* atalho para o simulador */
 static GtkWidget *what_if(void) {
-    GtkWidget *btn = w_button("E se…?", NULL, "fin-row fin-whatif", open_sim, NULL, NULL);
+    GtkWidget *btn = w_button("Simular meu dinheiro", NULL, "fin-row fin-whatif", open_sim, NULL, NULL);
     GtkWidget *row = w_hbox(12);
     w_add(row, w_icon("auto-awesome", 24));
     GtkWidget *t = w_vbox(2);
     gtk_widget_set_hexpand(t, TRUE);
-    w_add(t, w_label("E se…?", "heading"));
+    w_add(t, w_label("Simular meu dinheiro", "heading"));
     w_add(t, w_label_wrap("Simule economizar, comprar algo, uma mudança na renda ou antecipar uma dívida, sem mexer nos seus dados.", "fin-muted caption"));
     w_add(row, t);
     w_add(row, w_icon("chevron-right", 20));
     gtk_button_set_child(GTK_BUTTON(btn), row);
-    gtk_widget_set_tooltip_text(btn, "Abrir o simulador \"E se…?\"");
+    gtk_widget_set_tooltip_text(btn, "Abrir o simulador (nada é gravado)");
     return btn;
 }
 
@@ -324,7 +496,7 @@ void page_reports_refresh(void) {
     if (!body || !APP->state) return;
     w_clear(body);
     GtkWidget *head = w_hbox(12);
-    GtkWidget *t = w_label("Relatórios", "fin-page-title");
+    GtkWidget *t = w_label("Resumo", "fin-page-title");
     gtk_widget_set_hexpand(t, TRUE);
     gtk_label_set_xalign(GTK_LABEL(t), 0);
     w_add(head, t);
@@ -341,10 +513,16 @@ void page_reports_refresh(void) {
     if (APP->layout != LAYOUT_NARROW) gtk_widget_set_size_request(bar, 420, -1), gtk_widget_set_halign(bar_wrap, GTK_ALIGN_START);
     w_add(body, bar_wrap);
 
-    GtkWidget *sum = summary(), *sim = what_if(), *cat = categories_card(), *mon = months_card();
+    g_autoptr(GPtrArray) rt = in_range(APP->filters.from, APP->filters.to);
+    Flow fl = flow_of(rt);
+    gboolean any = fl.income > 0 || fl.expense > 0;
+    GtkWidget *sum = summary(), *res = any ? result_card(fl) : NULL, *flw = any ? flow_card(fl) : NULL;
+    GtkWidget *sim = what_if(), *cat = categories_card(), *mon = months_card();
     if (APP->layout == LAYOUT_NARROW) {
         w_add(body, sum);
+        if (res) w_add(body, res);
         w_add(body, sim);
+        if (flw) w_add(body, flw);
         w_add(body, cat);
         w_add(body, mon);
         return;
@@ -356,9 +534,11 @@ void page_reports_refresh(void) {
     gtk_widget_set_valign(left, GTK_ALIGN_START);
     gtk_widget_set_valign(right, GTK_ALIGN_START);
     w_add(left, sum);
+    if (res) w_add(left, res);
     w_add(left, sim);
-    w_add(left, mon);
+    if (flw) w_add(left, flw);
     w_add(right, cat);
+    w_add(right, mon);
     gtk_grid_attach(GTK_GRID(g), left, 0, 0, 1, 1);
     gtk_grid_attach(GTK_GRID(g), right, 1, 0, 1, 1);
     w_add(body, g);

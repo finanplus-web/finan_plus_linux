@@ -53,6 +53,7 @@ Tx *tx_new(const char *id, Kind kind, Cents value, Day date, const char *desc, c
     t->card_payment = dup0("");
     t->recurring_id = dup0("");
     t->group_id = dup0("");
+    t->scheduled_date = DAY_NONE;
     return t;
 }
 
@@ -63,6 +64,7 @@ Tx *tx_copy(const Tx *s) {
     tx_set_str(&t->group_id, s->group_id);
     t->parcel_n = s->parcel_n;
     t->parcel_total = s->parcel_total;
+    t->scheduled_date = s->scheduled_date;
     return t;
 }
 
@@ -245,4 +247,47 @@ gboolean str_same_ci(const char *a, const char *b) {
     g_autofree char *x = g_utf8_strdown(a, -1);
     g_autofree char *y = g_utf8_strdown(b, -1);
     return strcmp(x, y) == 0;
+}
+
+/* ------------------------------------------------------------------ limites */
+
+AppCounts app_counts(const AppState *s) {
+    AppCounts c = {s->txs->len, s->accounts->len, s->cards->len, s->recurring->len, s->goals->len, {s->cats[0]->len, s->cats[1]->len}};
+    return c;
+}
+
+const char *app_growth_error(AppCounts a, AppCounts b) {
+#define GREW(x, max) (b.x > (max) && b.x > a.x)
+    if (GREW(txs, LIMIT_TXS)) return "Limite de 50.000 lançamentos atingido.";
+    if (GREW(accounts, LIMIT_ACCOUNTS)) return "Limite de 100 contas atingido.";
+    if (GREW(cards, LIMIT_CARDS)) return "Limite de 100 cartões atingido.";
+    if (GREW(recurring, LIMIT_RECURRING)) return "Limite de 1.000 recorrências atingido.";
+    if (GREW(goals, LIMIT_GOALS)) return "Limite de 1.000 metas atingido.";
+    if (GREW(cats[0], LIMIT_CATEGORIES) || GREW(cats[1], LIMIT_CATEGORIES)) return "Limite de 500 categorias atingido.";
+#undef GREW
+    return NULL;
+}
+
+/* soma com parada antecipada: nada passa de MONEY_SAFE_TOTAL, então não há estouro */
+static gboolean add_abs(Cents *total, Cents v) {
+    Cents a = v < 0 ? -v : v;
+    if (v == G_MININT64 || a > MONEY_MAX_ABS) return FALSE;
+    *total += a;
+    return *total <= MONEY_SAFE_TOTAL;
+}
+
+gboolean app_money_fits(const AppState *s, Cents minus, Cents plus) {
+    Cents t = 0;
+    for (guint i = 0; i < s->txs->len; i++) if (!add_abs(&t, ((Tx *)s->txs->pdata[i])->value)) return FALSE;
+    for (guint i = 0; i < s->accounts->len; i++) if (!add_abs(&t, ((Account *)s->accounts->pdata[i])->initial)) return FALSE;
+    for (guint i = 0; i < s->cards->len; i++) if (!add_abs(&t, ((Card *)s->cards->pdata[i])->limit)) return FALSE;
+    for (guint i = 0; i < s->goals->len; i++) {
+        Goal *g = s->goals->pdata[i];
+        if (!add_abs(&t, g->target) || !add_abs(&t, g->saved) || !add_abs(&t, g->monthly)) return FALSE;
+    }
+    for (guint i = 0; i < s->recurring->len; i++) if (!add_abs(&t, ((Recurring *)s->recurring->pdata[i])->value)) return FALSE;
+    for (guint i = 0; i < s->limits->len; i++) if (!add_abs(&t, ((Limit *)s->limits->pdata[i])->value)) return FALSE;
+    Cents m = minus < 0 ? -minus : minus, pl = plus < 0 ? -plus : plus;
+    t = t > m ? t - m : 0;
+    return pl <= MONEY_SAFE_TOTAL && t + pl <= MONEY_SAFE_TOTAL;
 }

@@ -401,19 +401,19 @@ static TxDraft draft(const char *value, int reps, RepsMode mode, const char *car
     TxDraft d = {KIND_EXPENSE, desc, value, "Alimentação", D(date), TRUE, "main", card, reps, mode, rec};
     return d;
 }
+/* "hoje" depois de todas as datas dos testes antigos: o comportamento deles não muda */
+#define T_PAST D("2027-06-01")
 #define DRAFT() draft("100", 1, REPS_TOTAL, "", FALSE, "2026-10-03", "Mercado")
 
 static void test_ops_validation(void) {
     g_autoptr(AppState) s = app_state_new();
     OpErr e;
-    TxDraft d = DRAFT(); d.desc = "   ";
-    g_assert_false(ops_save_tx(s, NULL, &d, &e)); g_assert_cmpstr(e.msg, ==, "Informe uma descrição.");
-    d = DRAFT(); d.value = "0";
-    g_assert_false(ops_save_tx(s, NULL, &d, &e)); g_assert_true(contains(e.msg, "maior que zero"));
+    TxDraft d = DRAFT(); d.value = "0";
+    g_assert_false(ops_save_tx(s, NULL, &d, T_PAST, &e)); g_assert_true(contains(e.msg, "maior que zero"));
     d = DRAFT(); d.card_id = "nope";
-    g_assert_false(ops_save_tx(s, NULL, &d, &e)); g_assert_true(contains(e.msg, "Cadastre um cartão"));
+    g_assert_false(ops_save_tx(s, NULL, &d, T_PAST, &e)); g_assert_true(contains(e.msg, "Cadastre um cartão"));
     d = DRAFT(); d.reps = 3; d.recurring = TRUE;
-    g_assert_false(ops_save_tx(s, NULL, &d, &e)); g_assert_true(contains(e.msg, "parcelas ou repetição"));
+    g_assert_false(ops_save_tx(s, NULL, &d, T_PAST, &e)); g_assert_true(contains(e.msg, "parcelas ou repetição"));
     g_assert_false(ops_save_account(s, NULL, "", "", &e)); g_assert_cmpstr(e.msg, ==, "Informe o nome da conta.");
     g_assert_cmpuint(s->txs->len, ==, 0); /* nada foi alterado */
 }
@@ -421,7 +421,7 @@ static void test_ops_validation(void) {
 static void test_ops_installments(void) {
     g_autoptr(AppState) s = app_state_new();
     TxDraft d = draft("1000", 3, REPS_TOTAL, "", FALSE, "2026-10-03", "Mercado");
-    g_assert_true(ops_save_tx(s, NULL, &d, NULL));
+    g_assert_true(ops_save_tx(s, NULL, &d, T_PAST, NULL));
     Tx *t0 = s->txs->pdata[0], *t1 = s->txs->pdata[1], *t2 = s->txs->pdata[2];
     g_assert_cmpint(t0->value, ==, 33334); g_assert_cmpint(t1->value, ==, 33333); g_assert_cmpint(t2->value, ==, 33333);
     g_assert_true(t0->paid); g_assert_false(t1->paid); g_assert_false(t2->paid);
@@ -438,7 +438,7 @@ static void test_ops_installments(void) {
 static void test_ops_recurring_from_tx(void) {
     g_autoptr(AppState) s = app_state_new();
     TxDraft d = draft("100", 1, REPS_TOTAL, "", TRUE, "2026-12-10", "Mercado");
-    g_assert_true(ops_save_tx(s, NULL, &d, NULL));
+    g_assert_true(ops_save_tx(s, NULL, &d, T_PAST, NULL));
     g_assert_cmpuint(s->txs->len, ==, 1);
     g_assert_cmpint(generate_recurring(s, D("2026-10-03")), ==, 0);
     g_assert_cmpint(generate_recurring(s, D("2026-12-20")), ==, 0);
@@ -452,7 +452,7 @@ static void test_ops_card_and_payment(void) {
     g_assert_true(ops_save_card(s, NULL, "Nu", "500", "5", "12", NULL));
     const char *c = ((Card *)s->cards->pdata[0])->id;
     TxDraft d = draft("300", 3, REPS_TOTAL, c, FALSE, "2026-10-03", "Mercado");
-    g_assert_true(ops_save_tx(s, NULL, &d, NULL));
+    g_assert_true(ops_save_tx(s, NULL, &d, T_PAST, NULL));
     for (guint i = 0; i < s->txs->len; i++) {
         Tx *t = s->txs->pdata[i];
         g_assert_true(t->paid);
@@ -486,7 +486,7 @@ static void test_ops_rename_category(void) {
     g_autoptr(AppState) s = app_state_new();
     OpErr e;
     TxDraft d = draft("100", 1, REPS_TOTAL, "", TRUE, "2026-10-03", "Mercado");
-    g_assert_true(ops_save_tx(s, NULL, &d, NULL));
+    g_assert_true(ops_save_tx(s, NULL, &d, T_PAST, NULL));
     g_assert_true(ops_save_limit(s, NULL, "Alimentação", "300", NULL));
     g_assert_true(ops_rename_category(s, KIND_EXPENSE, "Alimentação", "Comida", NULL));
     g_assert_cmpstr(((Tx *)s->txs->pdata[0])->category, ==, "Comida");
@@ -1057,8 +1057,8 @@ static void test_audit_toggle_card_payment(void) {
     g_assert_false(ops_can_toggle_paid(s->txs->pdata[0]));
     g_assert_false(ops_can_toggle_paid(s->txs->pdata[1]));
     g_assert_true(ops_can_toggle_paid(s->txs->pdata[2]));
-    ops_toggle_paid(s, "p");
-    ops_toggle_paid(s, "l");
+    ops_toggle_paid(s, "p", D("2026-10-17"));
+    ops_toggle_paid(s, "l", D("2026-10-17"));
     g_assert_true(((Tx *)s->txs->pdata[0])->paid);
     g_assert_true(((Tx *)s->txs->pdata[2])->paid);
 }
@@ -1075,6 +1075,112 @@ static void test_audit_backup_value_limits(void) {
     g_assert_cmpuint(s->txs->len, ==, 1); /* valor inválido descarta o lançamento; o limite exato ainda vale */
     g_assert_cmpstr(((Tx *)s->txs->pdata[0])->id, ==, "c");
     g_assert_cmpint(((Tx *)s->txs->pdata[0])->value, ==, 999999999999999LL);
+}
+
+
+/* ------------------------------------------------------------------ 1.6.0 (iguais ao Android e ao Finan+ web) */
+#define TODAY160 D("2026-10-17")
+
+static void test_160_default_paid(void) {
+    g_assert_true(ops_default_paid(TODAY160, TODAY160));
+    g_assert_false(ops_default_paid(D("2026-10-16"), TODAY160));
+    g_assert_false(ops_default_paid(D("2026-10-18"), TODAY160));
+}
+
+static void test_160_desc_optional(void) {
+    g_autoptr(AppState) s = app_state_new();
+    TxDraft d = draft("25,50", 1, REPS_TOTAL, "", FALSE, "2026-10-17", "  ");
+    g_assert_true(ops_save_tx(s, NULL, &d, TODAY160, NULL));
+    g_assert_cmpstr(((Tx *)s->txs->pdata[0])->desc, ==, "Alimentação");
+}
+
+static void test_160_settle_and_undo(void) {
+    g_autoptr(AppState) s = app_state_new();
+    TxDraft d = draft("100", 1, REPS_TOTAL, "", FALSE, "2026-10-10", "Luz"); d.paid = FALSE;
+    g_assert_true(ops_save_tx(s, NULL, &d, TODAY160, NULL));
+    Tx *t = s->txs->pdata[0];
+    ops_toggle_paid(s, t->id, TODAY160);
+    g_assert_true(t->paid); g_assert_cmpint(t->date, ==, TODAY160); g_assert_cmpint(t->scheduled_date, ==, D("2026-10-10"));
+    ops_toggle_paid(s, t->id, TODAY160);
+    g_assert_false(t->paid); g_assert_cmpint(t->date, ==, D("2026-10-10")); g_assert_cmpint(t->scheduled_date, ==, DAY_NONE);
+}
+
+static void test_160_future_paid_and_backup(void) {
+    g_autoptr(AppState) s = app_state_new();
+    TxDraft d = draft("100", 1, REPS_TOTAL, "", FALSE, "2026-10-25", "Luz");
+    g_assert_true(ops_save_tx(s, NULL, &d, TODAY160, NULL));
+    Tx *t = s->txs->pdata[0];
+    g_assert_cmpint(t->date, ==, TODAY160); g_assert_cmpint(t->scheduled_date, ==, D("2026-10-25"));
+    g_autofree char *j = backup_to_json(s, NULL);
+    g_assert_nonnull(strstr(j, "\"scheduledDate\":\"2026-10-25\""));
+    g_autoptr(AppState) b = backup_parse(j, -1, NULL, NULL);
+    g_assert_cmpint(((Tx *)b->txs->pdata[0])->scheduled_date, ==, D("2026-10-25"));
+    /* editar de volta para pendente restaura a data prevista */
+    TxDraft e = draft("100", 1, REPS_TOTAL, "", FALSE, "2026-10-17", "Luz"); e.paid = FALSE;
+    g_assert_true(ops_save_tx(s, t->id, &e, TODAY160, NULL));
+    g_assert_false(t->paid); g_assert_cmpint(t->date, ==, D("2026-10-25")); g_assert_cmpint(t->scheduled_date, ==, DAY_NONE);
+}
+
+static void test_160_exact_cents(void) {
+    Cents c;
+    g_assert_true(money_from_decimal("1.005", &c)); g_assert_cmpint(c, ==, 101);
+    g_assert_true(money_from_decimal("-2.345", &c)); g_assert_cmpint(c, ==, -235);
+    g_assert_true(money_from_decimal("1e3", &c)); g_assert_cmpint(c, ==, 100000);
+    g_assert_true(money_from_decimal("1.5e-2", &c)); g_assert_cmpint(c, ==, 2);
+    g_assert_false(money_from_decimal("abc", &c));
+    g_assert_false(money_from_decimal("10000000000000000", &c));
+    g_autoptr(AppState) s = backup_parse("{\"txs\":[{\"id\":\"a\",\"kind\":\"expense\",\"value\":1.005,\"date\":\"2026-10-01\"},"
+                                         "{\"id\":\"b\",\"kind\":\"expense\",\"value\":\"0.005\",\"date\":\"2026-10-01\"}]}", -1, NULL, NULL);
+    g_assert_cmpint(((Tx *)s->txs->pdata[0])->value, ==, 101);
+    g_assert_cmpint(((Tx *)s->txs->pdata[1])->value, ==, 1);
+}
+
+static char *accounts_json(int n) {
+    GString *g = g_string_new("{\"txs\":[],\"accounts\":[");
+    for (int i = 0; i < n; i++) g_string_append_printf(g, "%s{\"id\":\"a%d\",\"name\":\"Conta %d\",\"initial\":0}", i ? "," : "", i, i);
+    g_string_append(g, "]}");
+    return g_string_free(g, FALSE);
+}
+
+static void test_160_limits(void) {
+    g_autofree char *over = accounts_json(LIMIT_ACCOUNTS + 3), *at = accounts_json(LIMIT_ACCOUNTS);
+    g_autoptr(GError) e = NULL;
+    g_assert_null(backup_parse(over, -1, NULL, &e));
+    g_autoptr(AppState) own = backup_parse_ext(over, -1, NULL, FALSE, NULL);
+    g_assert_cmpuint(own->accounts->len, ==, LIMIT_ACCOUNTS + 3);
+    OpErr err;
+    g_assert_false(ops_save_account(own, NULL, "Mais uma", "", &err));
+    g_assert_cmpstr(err.title, ==, "Limite atingido");
+    g_assert_true(ops_save_account(own, "a1", "Renomeada", "", NULL));
+    g_autoptr(AppState) lim = backup_parse(at, -1, NULL, NULL);
+    g_autofree char *j = backup_to_json(lim, NULL);
+    g_autoptr(AppState) back = backup_parse(j, -1, NULL, NULL);
+    g_assert_cmpuint(back->accounts->len, ==, LIMIT_ACCOUNTS);
+}
+
+static void test_160_upcoming(void) {
+    g_autoptr(AppState) s = app_state_new();
+    const char *dates[] = {"2026-10-30", "2026-10-20", "2026-10-05", "2026-11-02"};
+    for (int i = 0; i < 4; i++) {
+        TxDraft d = draft("10", 1, REPS_TOTAL, "", FALSE, dates[i], dates[i]); d.paid = FALSE;
+        g_assert_true(ops_save_tx(s, NULL, &d, TODAY160, NULL));
+    }
+    g_autoptr(GPtrArray) u = upcoming_dues(s, TODAY160, 3);
+    g_assert_cmpuint(u->len, ==, 3);
+    g_assert_cmpint(((Reminder *)u->pdata[0])->date, ==, D("2026-10-05"));
+    g_assert_cmpint(((Reminder *)u->pdata[0])->type, ==, REMINDER_BILL_OVERDUE);
+    g_assert_cmpint(((Reminder *)u->pdata[2])->date, ==, D("2026-10-30"));
+    Reminder *n = next_due(s, TODAY160);
+    g_assert_cmpint(n->date, ==, D("2026-10-05"));
+    reminder_free(n);
+}
+
+static void test_160_safe_total(void) {
+    GString *g = g_string_new("{\"txs\":[");
+    for (int i = 0; i < 10; i++) g_string_append_printf(g, "%s{\"id\":\"t%d\",\"kind\":\"income\",\"value\":\"9999999999999.99\",\"date\":\"2026-10-01\"}", i ? "," : "", i);
+    g_string_append(g, "]}");
+    g_autofree char *j = g_string_free(g, FALSE);
+    g_assert_null(backup_parse(j, -1, NULL, NULL));
 }
 
 int main(int argc, char **argv) {
@@ -1150,5 +1256,13 @@ int main(int argc, char **argv) {
     g_test_add_func("/audit/resume-recurring", test_audit_resume_recurring);
     g_test_add_func("/audit/toggle-card-payment", test_audit_toggle_card_payment);
     g_test_add_func("/audit/backup-value-limits", test_audit_backup_value_limits);
+    g_test_add_func("/v160/default-paid", test_160_default_paid);
+    g_test_add_func("/v160/desc-optional", test_160_desc_optional);
+    g_test_add_func("/v160/settle-and-undo", test_160_settle_and_undo);
+    g_test_add_func("/v160/future-paid-and-backup", test_160_future_paid_and_backup);
+    g_test_add_func("/v160/exact-cents", test_160_exact_cents);
+    g_test_add_func("/v160/limits", test_160_limits);
+    g_test_add_func("/v160/upcoming", test_160_upcoming);
+    g_test_add_func("/v160/safe-total", test_160_safe_total);
     return g_test_run();
 }

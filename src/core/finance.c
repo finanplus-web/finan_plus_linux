@@ -3,6 +3,7 @@
  */
 #include "finance.h"
 #include <string.h>
+#include <stdlib.h>
 
 /* ------------------------------------------------------------------ cartões e faturas */
 
@@ -153,29 +154,38 @@ Cents future_balance(const AppState *s, Day until, Day today) {
 
 int generate_recurring(AppState *s, Day today) {
     Ym cur = day_ym(today);
-    int created = 0;
+    /* primeiro monta tudo à parte: só grava se couber nos limites de quantidade e no teto de valores (como no Android) */
+    g_autoptr(GPtrArray) add = g_ptr_array_new_with_free_func((GDestroyNotify)tx_free);
+    g_autofree Ym *lasts = g_new(Ym, MAX(1u, s->recurring->len));
+    Cents total = 0;
     for (guint i = 0; i < s->recurring->len; i++) {
         Recurring *r = s->recurring->pdata[i];
+        lasts[i] = r->last;
         if (!r->active) continue;
         Ym start_ym = r->start != DAY_NONE ? day_ym(r->start) : (r->last != YM_NONE ? r->last + 1 : cur);
         Ym m = (r->last != YM_NONE && r->last + 1 > start_ym) ? r->last + 1 : start_ym;
-        Ym last = r->last;
         int guard = 0;
         while (m <= cur && guard < 24) {
             Day date = ym_day_clamped(m, r->day);
-            last = m;
+            lasts[i] = m;
             if (r->start == DAY_NONE || date >= r->start) {
                 g_autofree char *id = ids_new();
                 Tx *t = tx_new(id, r->kind, r->value, date, r->desc, r->category, r->card_id[0] != '\0', r->account_id, r->card_id);
                 tx_set_str(&t->recurring_id, r->id);
-                g_ptr_array_add(s->txs, t);
-                created++;
+                g_ptr_array_add(add, t);
+                total += r->value;
             }
             m++;
             guard++;
         }
-        r->last = last;
     }
+    AppCounts after = app_counts(s);
+    after.txs += add->len;
+    if (add->len && (app_growth_error(app_counts(s), after) || !app_money_fits(s, 0, total))) return 0;
+    for (guint i = 0; i < s->recurring->len; i++) ((Recurring *)s->recurring->pdata[i])->last = lasts[i];
+    int created = (int)add->len;
+    for (guint i = 0; i < add->len; i++) g_ptr_array_add(s->txs, add->pdata[i]);
+    g_ptr_array_set_free_func(add, NULL); /* os lançamentos agora são do estado */
     return created;
 }
 
@@ -314,15 +324,21 @@ GPtrArray *reminders(const AppState *s, Day today, int days) {
     return out;
 }
 
-Reminder *next_due(const AppState *s, Day today) {
-    Reminder *best = NULL;
+/* ordem por data, mantendo contas antes de faturas no empate (como o sortedBy do Android) */
+typedef struct { Reminder *r; guint i; } RemIdx;
+static gint cmp_rem_idx(gconstpointer a, gconstpointer b) {
+    const RemIdx *x = a, *y = b;
+    if (x->r->date != y->r->date) return x->r->date < y->r->date ? -1 : 1;
+    return x->i < y->i ? -1 : x->i > y->i ? 1 : 0;
+}
+
+GPtrArray *upcoming_dues(const AppState *s, Day today, int limit) {
+    GPtrArray *all = g_ptr_array_new_with_free_func((GDestroyNotify)reminder_free);
+    if (limit <= 0) return all;
     for (guint i = 0; i < s->txs->len; i++) {
         Tx *t = s->txs->pdata[i];
         if (t->paid || tx_is_card(t) || t->kind != KIND_EXPENSE) continue;
-        if (!best || t->date < best->date) {
-            reminder_free(best);
-            best = reminder_new(t->date < today ? REMINDER_BILL_OVERDUE : REMINDER_BILL_DUE, t->desc, t->value, t->date, t->id);
-        }
+        g_ptr_array_add(all, reminder_new(t->date < today ? REMINDER_BILL_OVERDUE : REMINDER_BILL_DUE, t->desc, t->value, t->date, t->id));
     }
     for (guint i = 0; i < s->cards->len; i++) {
         Card *c = s->cards->pdata[i];
@@ -330,15 +346,27 @@ Reminder *next_due(const AppState *s, Day today) {
         card_status(s, c, today, &st);
         for (guint j = 0; j < st.invoices->len; j++) {
             Invoice *v = &g_array_index(st.invoices, Invoice, j);
-            if (invoice_open(v) > 0 && (!best || v->due < best->date)) {
-                reminder_free(best);
-                g_autofree char *title = g_strdup_printf("Fatura %s", c->name);
-                best = reminder_new(REMINDER_INVOICE_DUE, title, invoice_open(v), v->due, c->id);
-            }
+            if (invoice_open(v) <= 0) continue;
+            g_autofree char *title = g_strdup_printf("Fatura %s", c->name);
+            g_ptr_array_add(all, reminder_new(REMINDER_INVOICE_DUE, title, invoice_open(v), v->due, c->id));
         }
         card_status_clear(&st);
     }
-    return best;
+    g_autofree RemIdx *idx = g_new(RemIdx, MAX(1u, all->len));
+    for (guint i = 0; i < all->len; i++) idx[i] = (RemIdx){all->pdata[i], i};
+    qsort(idx, all->len, sizeof *idx, (int (*)(const void *, const void *))cmp_rem_idx);
+    GPtrArray *out = g_ptr_array_new_with_free_func((GDestroyNotify)reminder_free);
+    for (guint i = 0; i < all->len; i++) {
+        if ((int)i < limit) { g_ptr_array_add(out, idx[i].r); all->pdata[idx[i].i] = NULL; }
+    }
+    g_ptr_array_unref(all); /* reminder_free(NULL) não faz nada */
+    return out;
+}
+
+Reminder *next_due(const AppState *s, Day today) {
+    g_autoptr(GPtrArray) u = upcoming_dues(s, today, 1);
+    if (!u->len) return NULL;
+    return g_ptr_array_steal_index(u, 0);
 }
 
 /* ------------------------------------------------------------------ CSV */

@@ -315,46 +315,6 @@ static GtkWidget *assistant(void) {
 
 /* ---------------------------------------------------------------- contas e cartões */
 
-static void edit_account(gpointer id) { editor_account(id); }
-static void edit_card(gpointer id) { editor_card(id); }
-static void new_account(gpointer u) { (void)u; editor_account(NULL); }
-static void new_card(gpointer u) { (void)u; editor_card(NULL); }
-
-static GtkWidget *accounts(void) {
-    const AppState *s = APP->state;
-    GtkWidget *content;
-    g_autofree char *sum = g_strdup_printf("%u conta(s) · %u cartão(ões)", s->accounts->len, s->cards->len);
-    GtkWidget *card = w_collapsible("contas", "Contas e cartões", sum, &content);
-    GtkWidget *list = boxed();
-    for (guint i = 0; i < s->accounts->len; i++) {
-        Account *a = s->accounts->pdata[i];
-        g_autofree char *m = app_money(account_balance(s, a));
-        g_autofree char *sub = g_strdup_printf("Saldo %s", m);
-        GtkWidget *r = manage_row(list, a->name, sub);
-        adw_action_row_add_prefix(ADW_ACTION_ROW(r), w_icon("account-balance-wallet", 20));
-        suffix(r, w_pill("Editar", edit_account, g_strdup(a->id), g_free));
-    }
-    for (guint i = 0; i < s->cards->len; i++) {
-        Card *c = s->cards->pdata[i];
-        CardStatus st;
-        card_status(s, c, APP->today, &st);
-        g_autofree char *l = app_money(c->limit), *u = app_money(st.used);
-        g_autofree char *sub = g_strdup_printf("Limite %s · usado %s · fecha dia %d · vence dia %d", l, u, c->close, c->due);
-        card_status_clear(&st);
-        g_autofree char *t = g_strdup_printf("Cartão %s", c->name);
-        GtkWidget *r = manage_row(list, t, sub);
-        adw_action_row_add_prefix(ADW_ACTION_ROW(r), w_icon("credit-card", 20));
-        suffix(r, w_pill("Editar", edit_card, g_strdup(c->id), g_free));
-    }
-    w_add(content, list);
-    GtkWidget *row = w_hbox(8);
-    gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
-    w_add(row, w_pill("＋ Conta", new_account, NULL, NULL));
-    w_add(row, w_pill("＋ Cartão", new_card, NULL, NULL));
-    w_add(content, row);
-    return card;
-}
-
 /* ---------------------------------------------------------------- recorrências */
 
 static void edit_rec(gpointer id) { editor_recurring(id); }
@@ -384,116 +344,6 @@ static GtkWidget *recurring(void) {
         suffix(row, w_pill("Editar", edit_rec, g_strdup(r->id), g_free));
     }
     if (s->recurring->len) w_add(content, list);
-    return card;
-}
-
-/* ---------------------------------------------------------------- limites */
-
-static void edit_limit(gpointer cat) { editor_limit(cat); }
-static void new_limit(gpointer u) { (void)u; editor_limit(NULL); }
-
-static GtkWidget *limits(void) {
-    const AppState *s = APP->state;
-    GtkWidget *content;
-    g_autofree char *sum = s->limits->len ? g_strdup_printf("%u limite(s) definido(s)", s->limits->len) : g_strdup("Nenhum limite definido");
-    GtkWidget *card = w_collapsible("limites", "Limites mensais", sum, &content);
-    GtkWidget *nb = w_pill("＋ Adicionar", new_limit, NULL, NULL);
-    gtk_widget_set_halign(nb, GTK_ALIGN_END);
-    w_add(content, nb);
-    GtkWidget *list = boxed();
-    for (guint i = 0; i < s->limits->len; i++) {
-        Limit *l = s->limits->pdata[i];
-        g_autofree char *v = app_money(l->value);
-        g_autofree char *sub = g_strdup_printf("%s por mês", v);
-        GtkWidget *row = manage_row(list, l->category, sub);
-        suffix(row, w_pill("Editar", edit_limit, g_strdup(l->category), g_free));
-    }
-    if (s->limits->len) w_add(content, list);
-    return card;
-}
-
-/* ---------------------------------------------------------------- categorias */
-
-static GtkWidget *new_cat_entry, *new_cat_kind;
-static guint new_cat_kind_sel = 0; /* mantém Despesa/Receita depois de adicionar */
-
-static void add_category(gpointer u) {
-    (void)u;
-    OpErr e;
-    new_cat_kind_sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(new_cat_kind));
-    Kind k = new_cat_kind_sel == 1 ? KIND_INCOME : KIND_EXPENSE;
-    if (!ops_add_category(APP->state, k, gtk_editable_get_text(GTK_EDITABLE(new_cat_entry)), &e)) { dlg_notice(e.title, e.msg); return; }
-    app_commit();
-    app_toast("Categoria adicionada");
-}
-
-typedef struct { Kind kind; char *name; } CatRef;
-static void cat_ref_free(gpointer p) { CatRef *c = p; g_free(c->name); g_free(c); }
-static CatRef *cat_ref(Kind k, const char *n) { CatRef *c = g_new0(CatRef, 1); c->kind = k; c->name = g_strdup(n); return c; }
-
-static void do_rename(const char *name, gpointer p) {
-    CatRef *c = p;
-    OpErr e;
-    if (!ops_rename_category(APP->state, c->kind, c->name, name, &e)) { dlg_notice(e.title, e.msg); return; }
-    app_commit();
-}
-
-static void rename_cat(gpointer p) {
-    CatRef *c = p;
-    g_autofree char *msg = g_strdup_printf("Lançamentos, recorrências e limites de “%s” passam a usar o novo nome.", c->name);
-    dlg_input("Renomear categoria", msg, "Novo nome", c->name, FALSE, do_rename, cat_ref(c->kind, c->name), cat_ref_free);
-}
-
-static void do_delete_cat(gpointer p) {
-    CatRef *c = p;
-    ops_delete_category(APP->state, c->kind, c->name);
-    app_commit();
-}
-
-static void delete_cat(gpointer p) {
-    CatRef *c = p;
-    OpErr e;
-    if (!ops_check_delete_category(APP->state, c->kind, c->name, &e)) { dlg_notice(e.title, e.msg); return; }
-    int used = ops_category_use_count(APP->state, c->kind, c->name);
-    g_autofree char *msg = used > 0 ? g_strdup_printf("Excluir “%s” da lista de categorias? %d lançamento(s) antigo(s) continuará(ão) com essa categoria no histórico.", c->name, used)
-                                    : g_strdup_printf("Excluir a categoria “%s”?", c->name);
-    dlg_confirm("Excluir categoria", msg, "Excluir", TRUE, do_delete_cat, cat_ref(c->kind, c->name), cat_ref_free);
-}
-
-static GtkWidget *categories(void) {
-    const AppState *s = APP->state;
-    GtkWidget *content;
-    g_autofree char *sum = g_strdup_printf("%u categorias cadastradas", s->cats[0]->len + s->cats[1]->len);
-    GtkWidget *card = w_collapsible("categorias", "Categorias", sum, &content);
-    GtkWidget *row = w_hbox(8);
-    new_cat_entry = gtk_entry_new();
-    gtk_entry_set_placeholder_text(GTK_ENTRY(new_cat_entry), "Nova categoria");
-    gtk_entry_set_max_length(GTK_ENTRY(new_cat_entry), 40);
-    gtk_widget_set_hexpand(new_cat_entry, TRUE);
-    static const char *const kinds[] = {"Despesa", "Receita", NULL};
-    new_cat_kind = gtk_drop_down_new_from_strings(kinds);
-    gtk_drop_down_set_selected(GTK_DROP_DOWN(new_cat_kind), new_cat_kind_sel);
-    GtkWidget *add = w_button("Adicionar", "add", "suggested-action", add_category, NULL, NULL);
-    g_signal_connect_swapped(new_cat_entry, "activate", G_CALLBACK(add_category), NULL);
-    w_add(row, new_cat_entry);
-    w_add(row, new_cat_kind);
-    w_add(row, add);
-    w_add(content, row);
-    for (int k = 1; k >= 0; k--) {
-        GtkWidget *eb = w_eyebrow(k == KIND_EXPENSE ? "Despesas" : "Receitas");
-        gtk_widget_set_margin_top(eb, 8);
-        w_add(content, eb);
-        GtkWidget *list = boxed();
-        for (guint i = 0; i < s->cats[k]->len; i++) {
-            const char *c = s->cats[k]->pdata[i];
-            GtkWidget *r = manage_row(list, c, k == KIND_EXPENSE ? "Despesa" : "Receita");
-            adw_action_row_add_prefix(ADW_ACTION_ROW(r), w_category_glyph(c));
-            suffix(r, w_pill("Renomear", rename_cat, cat_ref((Kind)k, c), cat_ref_free));
-            GtkWidget *del = w_button("Excluir", NULL, "fin-pill danger", delete_cat, cat_ref((Kind)k, c), cat_ref_free);
-            suffix(r, del);
-        }
-        w_add(content, list);
-    }
     return card;
 }
 
@@ -607,6 +457,15 @@ static GtkWidget *about(void) {
 
 /* ---------------------------------------------------------------- montagem */
 
+/* grupo com título ("Personalização", "Segurança e dados"…) e os cartões embaixo */
+static GtkWidget *group(const char *title) {
+    GtkWidget *g = w_vbox(10);
+    GtkWidget *h = w_label(title, "fin-muted heading");
+    gtk_widget_set_margin_top(h, 6);
+    w_add(g, h);
+    return g;
+}
+
 void page_settings_refresh(void) {
     if (!body || !APP->state) return;
     w_clear(body);
@@ -615,19 +474,23 @@ void page_settings_refresh(void) {
     w_add(head, w_label("Ajustes", "fin-page-title"));
     w_add(head, w_label_wrap("Tudo fica salvo e criptografado neste computador.", "fin-muted"));
     w_add(body, head);
-    GtkWidget *cards[] = {appearance(), privacy(), notifications(), assistant(), accounts(), recurring(), limits(), categories(), data(), about()};
+    /* agrupado como no Android 1.6.0; contas, cartões, limites e categorias estão em Meu dinheiro */
+    GtkWidget *g1 = group("Personalização"), *g2 = group("Planejamento e automação"), *g3 = group("Segurança e dados"), *g4 = group("Aplicativo");
+    w_add(g1, appearance()); w_add(g1, notifications());
+    w_add(g2, assistant()); w_add(g2, recurring());
+    w_add(g3, privacy()); w_add(g3, data());
+    w_add(g4, about());
     if (APP->layout == LAYOUT_NARROW) {
-        for (guint i = 0; i < G_N_ELEMENTS(cards); i++) w_add(body, cards[i]);
+        w_add(body, g1); w_add(body, g2); w_add(body, g3); w_add(body, g4);
         return;
     }
-    /* duas colunas: preferências à esquerda, cadastros e dados à direita */
     GtkWidget *cols = w_hbox(18);
     gtk_box_set_homogeneous(GTK_BOX(cols), TRUE);
-    GtkWidget *a = w_vbox(14), *b = w_vbox(14);
-    int left[] = {0, 1, 2, 3, 9}, right[] = {4, 5, 6, 7, 8};
-    for (int i = 0; i < 5; i++) { w_add(a, cards[left[i]]); w_add(b, cards[right[i]]); }
-    w_add(cols, a);
-    w_add(cols, b);
+    GtkWidget *l = w_vbox(14), *r = w_vbox(14);
+    gtk_widget_set_valign(l, GTK_ALIGN_START); gtk_widget_set_valign(r, GTK_ALIGN_START);
+    w_add(l, g1); w_add(l, g2); w_add(r, g3); w_add(r, g4);
+    w_add(cols, l);
+    w_add(cols, r);
     w_add(body, cols);
 }
 

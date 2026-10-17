@@ -7,8 +7,8 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 | Lançamentos | Calendário |
 |---|---|
 | ![Lançamentos](docs/lancamentos.png) | ![Calendário](docs/calendario.png) |
-| **Relatórios e "E se…?"** | **Janela estreita** |
-| ![Relatórios](docs/relatorios.png) | ![Estreita](docs/janela-estreita.png) |
+| **Resumo e simulador** | **Janela estreita** |
+| ![Resumo (antes Relatórios)](docs/relatorios.png) | ![Estreita](docs/janela-estreita.png) |
 | **Ajustes (tema Tokyo Night)** | |
 | ![Ajustes](docs/ajustes-tokyo.png) | |
 

@@ -8,6 +8,10 @@
 
 G_BEGIN_DECLS
 
+/* "Depois das despesas, sobraram R$ X." e variantes (Lançamentos e Resumo), g_free */
+#include "core/finance.h"
+char *result_text(Flow f);
+
 /* cada tela: cria a raiz (uma vez) e redesenha o conteúdo */
 GtkWidget *page_home_new(void);
 void page_home_refresh(void);
@@ -17,6 +21,9 @@ void page_moves_focus_search(void);
 /* calendário (dentro da aba Lançamentos) */
 GtkWidget *page_calendar_new(void);
 void page_calendar_refresh(void);
+/* Meu dinheiro: contas, cartões, limites, metas, simulador e categorias */
+GtkWidget *page_money_new(void);
+void page_money_refresh(void);
 GtkWidget *page_reports_new(void);
 void page_reports_refresh(void);
 GtkWidget *page_assist_new(void);

@@ -2,7 +2,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  * Janela principal, pensada para computador e notebook:
- * - barra lateral com as cinco seções (Início, Lançamentos, Relatórios, Assistente, Ajustes)
+ * - barra lateral com as seis seções (Início, Lançamentos, Meu dinheiro, Resumo, Assistente, Ajustes)
  *   e o saldo sempre à vista;
  * - área de conteúdo com várias colunas, que se reorganiza conforme a largura da janela
  *   (em telas estreitas a barra lateral vira uma página e as colunas viram uma só);
@@ -22,7 +22,8 @@ App *APP = NULL;
 static const struct { const char *title; const char *icon; const char *icon_on; } PAGES[PAGE_COUNT] = {
     {"Início", "home", "home-fill"},
     {"Lançamentos", "swap-horiz", "swap-horiz-fill"},
-    {"Relatórios", "pie-chart", "pie-chart-fill"},
+    {"Meu dinheiro", "account-balance", "account-balance"},
+    {"Resumo", "pie-chart", "pie-chart-fill"},
     {"Assistente", "auto-awesome", "auto-awesome"},
     {"Ajustes", "settings", "settings-fill"},
 };
@@ -232,6 +233,7 @@ static void act(GSimpleAction *a, GVariant *p, gpointer u) {
     else if (!strcmp(n, "new-goal")) editor_goal(NULL);
     else if (!strcmp(n, "page-home")) app_show_page(PAGE_HOME);
     else if (!strcmp(n, "page-moves")) app_show_page(PAGE_MOVES);
+    else if (!strcmp(n, "page-money")) app_show_page(PAGE_MONEY);
     else if (!strcmp(n, "page-reports")) app_show_page(PAGE_REPORTS);
     else if (!strcmp(n, "page-assist")) app_show_page(PAGE_ASSIST);
     else if (!strcmp(n, "page-settings")) app_show_page(PAGE_SETTINGS);
@@ -251,8 +253,8 @@ static void act(GSimpleAction *a, GVariant *p, gpointer u) {
 static void install_actions(GtkApplication *app) {
     static const struct { const char *name; const char *accels[3]; } A[] = {
         {"new-expense", {"<Control>n", NULL}}, {"new-income", {"<Control><Shift>n", NULL}}, {"new-goal", {"<Control>m", NULL}},
-        {"page-home", {"<Control>1", NULL}}, {"page-moves", {"<Control>2", NULL}}, {"page-reports", {"<Control>3", NULL}},
-        {"page-assist", {"<Control>4", NULL}}, {"page-settings", {"<Control>5", "<Control>comma", NULL}},
+        {"page-home", {"<Control>1", NULL}}, {"page-moves", {"<Control>2", NULL}}, {"page-money", {"<Control>3", NULL}},
+        {"page-reports", {"<Control>4", NULL}}, {"page-assist", {"<Control>5", NULL}}, {"page-settings", {"<Control>6", "<Control>comma", NULL}},
         {"search", {"<Control>f", NULL}}, {"ask", {"<Control>k", NULL}}, {"privacy", {"<Control>h", NULL}},
         {"lock", {"<Control>l", NULL}}, {"pdf", {"<Control>p", NULL}}, {"csv", {"<Control>e", NULL}},
         {"backup", {"<Control>s", NULL}}, {"restore", {"<Control>o", NULL}}, {"shortcuts", {"<Control>question", NULL}},
@@ -388,7 +390,7 @@ static GtkWidget *build_sidebar(void) {
     GtkWidget *list = gtk_list_box_new();
     gtk_widget_add_css_class(list, "navigation-sidebar");
     gtk_accessible_update_property(GTK_ACCESSIBLE(list), GTK_ACCESSIBLE_PROPERTY_LABEL, "Seções", -1);
-    static const char *const keys[PAGE_COUNT] = {"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5"};
+    static const char *const keys[PAGE_COUNT] = {"Ctrl+1", "Ctrl+2", "Ctrl+3", "Ctrl+4", "Ctrl+5", "Ctrl+6"};
     for (int p = 0; p < PAGE_COUNT; p++) {
         GtkWidget *row = w_hbox(12);
         W.nav_icons[p] = w_icon(PAGES[p].icon, 20);
@@ -468,8 +470,8 @@ static GtkWidget *build_content(void) {
     W.content_stack = gtk_stack_new();
     gtk_stack_set_transition_type(GTK_STACK(W.content_stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
     gtk_stack_set_transition_duration(GTK_STACK(W.content_stack), 120);
-    GtkWidget *(*makers[PAGE_COUNT])(void) = {page_home_new, page_moves_new, page_reports_new, page_assist_new, page_settings_new};
-    void (*refreshers[PAGE_COUNT])(void) = {page_home_refresh, page_moves_refresh, page_reports_refresh, page_assist_refresh,
+    GtkWidget *(*makers[PAGE_COUNT])(void) = {page_home_new, page_moves_new, page_money_new, page_reports_new, page_assist_new, page_settings_new};
+    void (*refreshers[PAGE_COUNT])(void) = {page_home_refresh, page_moves_refresh, page_money_refresh, page_reports_refresh, page_assist_refresh,
                                             page_settings_refresh};
     for (int p = 0; p < PAGE_COUNT; p++) {
         APP->page_root[p] = makers[p]();
@@ -603,7 +605,7 @@ void app_activate(GtkApplication *gapp) {
         app_lock();
     }
     app_show_page(PAGE_HOME);
-    /* FINAN_PLUS_START_PAGE=0..4 abre direto numa seção (usado para capturas de tela da documentação) */
+    /* FINAN_PLUS_START_PAGE=0..5 abre direto numa seção (usado para capturas de tela da documentação) */
     const char *sp = g_getenv("FINAN_PLUS_START_PAGE");
     if (sp && *sp) app_show_page((PageId)CLAMP(atoi(sp), 0, PAGE_COUNT - 1));
     /* FINAN_PLUS_START_VIEW=calendario abre Lançamentos no calendário (também só para capturas) */

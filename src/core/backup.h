@@ -22,6 +22,9 @@ GQuark backup_error_quark(void);
 
 /* NULL + error se o texto não for JSON válido ou não tiver a lista de lançamentos */
 AppState *backup_parse(const char *text, gssize len, Dropped *dropped, GError **error);
+/* Igual, escolhendo se valem os limites de quantidade (AppState: LIMIT_*). Arquivos de fora: TRUE;
+ * os dados do próprio app: FALSE (quem já passou de um limite não pode abrir o app vazio). */
+AppState *backup_parse_ext(const char *text, gssize len, Dropped *dropped, gboolean enforce_limits, GError **error);
 
 /* Serializa no formato do Finan+ web (valores em reais). Com [app_version] != NULL inclui
  * o bloco "_backup" usado nos arquivos exportados. */

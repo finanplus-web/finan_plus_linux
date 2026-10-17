@@ -116,7 +116,7 @@ static void card_action(GtkButton *btn, BillEd *e) {
     TxDraft d = { .kind = KIND_EXPENSE, .desc = desc, .value = vb, .category = cat, .date = bill_date_in_invoice(c, ym), .paid = TRUE,
                   .account_id = acc->id, .card_id = c->id, .reps = 1, .reps_mode = REPS_TOTAL };
     OpErr err;
-    gboolean ok = ops_save_tx(APP->state, NULL, &d, &err);
+    gboolean ok = ops_save_tx(APP->state, NULL, &d, APP->today, &err);
     save_result(e, ok, &err, app == 0 ? "Fatura lançada no cartão" : "Diferença lançada no cartão");
 }
 
@@ -136,7 +136,7 @@ static void save_bill(GtkButton *btn, BillEd *e) {
                   .category = ci >= 0 && (guint)ci < e->cats->len ? e->cats->pdata[ci] : app_first_category(APP->state, KIND_EXPENSE),
                   .date = due, .paid = row_switch_get(e->paid), .account_id = acc->id, .card_id = "", .reps = 1, .reps_mode = REPS_TOTAL };
     OpErr err;
-    gboolean ok = ops_save_tx(APP->state, NULL, &d, &err);
+    gboolean ok = ops_save_tx(APP->state, NULL, &d, APP->today, &err);
     save_result(e, ok, &err, d.paid ? "Despesa salva" : "Conta a pagar salva");
 }
 

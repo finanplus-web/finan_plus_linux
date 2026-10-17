@@ -258,6 +258,10 @@ static char *build_widgets(const FinPalette *p) {
         "checkbutton check:checked, checkbutton radio:checked { background-color: %4$s; color: %5$s; }\n"
         "toast { background-color: alpha(%2$s, 0.92); color: %1$s; }\n"
         "label.dim-label, .dim-label { color: %3$s; }\n"
+        /* 1.6.0: ícone em quadradinho (Meu dinheiro) e "Entrou R$ X" do fluxo do dinheiro */
+        "image.fin-tile { background-color: %6$s; color: %4$s; border-radius: 14px; padding: 12px; }\n"
+        "row.fin-value-row text { font-size: 1.35em; font-weight: 800; }\n"
+        ".fin-flow-pill { background-color: %2$s; color: %1$s; border-radius: 24px; padding: 8px 20px; font-weight: 800; }\n"
         "selection { background-color: alpha(%4$s, 0.30); }\n"
         "link, button.link { color: %4$s; }\n"
         ".fin-pill:checked, .fin-pill.selected { background-color: %4$s; color: %5$s; }\n"

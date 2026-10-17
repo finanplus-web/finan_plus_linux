@@ -500,7 +500,7 @@ static void layout(Pen *p, const AppState *s, gboolean include_txs) {
     new_page(p);
     header(p);
     kpis(p);
-    section(p, "Despesas por categoria", "Valores realizados. Média mensal comparada com o limite mensal definido em Ajustes.", 160);
+    section(p, "Despesas por categoria", "Valores realizados. Média mensal comparada com o limite mensal definido em Meu dinheiro.", 160);
     if (!r->expense_by_category->len) note(p, "Sem despesas realizadas no período.");
     else { donut(p, r->expense_by_category, r->expense); category_table(p, r->expense_by_category, TRUE); }
 
