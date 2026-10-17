@@ -134,3 +134,43 @@ gboolean money_parse(const char *input, Cents *out) {
     if (out) *out = neg ? -cents : cents;
     return TRUE;
 }
+
+gboolean money_from_decimal(const char *text, Cents *out) {
+    if (!text) return FALSE;
+    g_autofree char *t = g_strstrip(g_strdup(text));
+    const char *p = t;
+    gboolean neg = FALSE;
+    if (*p == '+' || *p == '-') neg = *p++ == '-';
+    GString *digits = g_string_new(NULL);
+    int int_len = 0;
+    gboolean any = FALSE;
+    for (; g_ascii_isdigit(*p); p++) { g_string_append_c(digits, *p); int_len++; any = TRUE; }
+    if (*p == '.') { p++; for (; g_ascii_isdigit(*p); p++) { g_string_append_c(digits, *p); any = TRUE; } }
+    long exp = 0;
+    if (any && (*p == 'e' || *p == 'E')) {
+        p++;
+        gboolean eneg = FALSE;
+        if (*p == '+' || *p == '-') eneg = *p++ == '-';
+        if (!g_ascii_isdigit(*p)) { g_string_free(digits, TRUE); return FALSE; }
+        for (; g_ascii_isdigit(*p); p++) { exp = exp * 10 + (*p - '0'); if (exp > 400) { g_string_free(digits, TRUE); return FALSE; } }
+        if (eneg) exp = -exp;
+    }
+    if (!any || *p) { g_string_free(digits, TRUE); return FALSE; }
+    /* posição da vírgula em centavos: parte inteira + expoente + 2 casas */
+    long point = int_len + exp + 2;
+    Cents c = 0;
+    gboolean round_up = FALSE;
+    for (long i = 0; i < (long)digits->len || i < point; i++) {
+        char d = i < (long)digits->len ? digits->str[i] : '0';
+        if (i < point) {
+            if (c > MONEY_MAX_ABS) break; /* já passou: recusa abaixo */
+            c = c * 10 + (d - '0');
+        } else { round_up = d >= '5'; break; }
+    }
+    g_string_free(digits, TRUE);
+    if (point < 0) { c = 0; round_up = FALSE; }
+    if (round_up) c++;
+    if (c > MONEY_MAX_ABS) return FALSE;
+    *out = neg ? -c : c;
+    return TRUE;
+}

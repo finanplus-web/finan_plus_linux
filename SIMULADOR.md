@@ -1,6 +1,6 @@
 # Simulador "E se…?"
 
-Fica em **Relatórios › E se…?** desde a versão 1.2.0 do Finan+ para Linux. Serve para testar uma decisão **antes** de tomá-la. **Nada é gravado**: as contas usam os seus lançamentos só para leitura, e os valores digitados somem ao fechar o diálogo. O selo "Só simulação: seus dados não mudam" fica sempre à vista.
+Fica em **Resumo › Simular meu dinheiro** e em **Meu dinheiro › Abrir simulação** (antes "Relatórios › E se…?", desde a versão 1.2.0 do Finan+ para Linux). Serve para testar uma decisão **antes** de tomá-la. **Nada é gravado**: as contas usam os seus lançamentos só para leitura, e os valores digitados somem ao fechar o diálogo. O selo "Só simulação: seus dados não mudam" fica sempre à vista.
 
 O código das contas está em `src/core/simulator.c` (testado em `tests/test_period.c`, com os mesmos casos do app Android e do Finan+ web). O diálogo está em `src/ui/simulator.c`. As regras são as mesmas do app Android 1.4.0 (`core/Simulator.kt`) e do Finan+ web 1.3.0 (`js/simulator.js`).
 

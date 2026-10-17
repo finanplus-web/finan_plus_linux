@@ -1,7 +1,7 @@
 # Finan+ — Copyright (C) 2026 Juscelino Be
 # SPDX-License-Identifier: GPL-3.0-or-later
 project('finan-plus', 'c',
-  version: '1.2.1',
+  version: '1.3.0',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 0.63',
   default_options: ['c_std=gnu11', 'warning_level=2', 'buildtype=release', 'b_ndebug=if-release'])
@@ -47,7 +47,7 @@ core_dep = declare_dependency(link_with: core_lib, include_directories: include_
 
 ui_src = files(
   'src/main.c', 'src/ui/window.c', 'src/ui/theme.c', 'src/ui/widgets.c', 'src/ui/page_home.c',
-  'src/ui/page_moves.c', 'src/ui/page_calendar.c', 'src/ui/simulator.c', 'src/ui/page_reports.c', 'src/ui/page_assist.c', 'src/ui/page_settings.c',
+  'src/ui/page_moves.c', 'src/ui/page_money.c', 'src/ui/page_calendar.c', 'src/ui/simulator.c', 'src/ui/page_reports.c', 'src/ui/page_assist.c', 'src/ui/page_settings.c',
   'src/ui/editors.c', 'src/ui/lock.c', 'src/ui/data.c', 'src/ui/notify.c', 'src/ui/misc.c', 'src/ui/pdf.c',
   'src/ui/pdf_render.c', 'src/ui/billsheet.c')
 

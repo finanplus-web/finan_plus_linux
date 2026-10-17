@@ -1,6 +1,28 @@
 # Changelog — Finan+ para Linux
 
-## Próxima versão — Ler fatura ou boleto
+## 1.3.0 — Mesmo visual e regras do Android 1.6.0 (17/10/2026)
+
+Traz para o Linux tudo o que entrou no app Android 1.6.0 e no Finan+ web 1.4.0, com o layout de computador.
+
+### Para quem usa
+
+- **Seções:** Início, Lançamentos, **Meu dinheiro** (nova), **Resumo** (antes Relatórios), Assistente e Ajustes. Atalhos Ctrl+1 a Ctrl+6.
+- **Meu dinheiro:** contas e cartões (com "Pagar fatura"), limites, metas, atalho para o simulador e categorias (minimizadas; "Maximizar" mostra a lista). Saíram do Início e de Ajustes. Cada parte vazia explica o que fazer e tem um atalho.
+- **Início:** saldo previsto com a data e o que considera, "Falta receber" / "Falta pagar" e os **próximos 3 vencimentos**.
+- **Ajustes** em grupos: Personalização, Planejamento e automação, Segurança e dados, Aplicativo.
+- **Formulário:** valor em destaque; categoria, data e **descrição opcional** (em branco, vale o nome da categoria); conta, situação, parcelas e repetição em **Mais opções**.
+- **Pendente ou realizado:** lançamento novo só vem como pago/recebido se a data for hoje. Ao confirmar um pendente, a data vira a do dia e a **data prevista** fica guardada ("previsto 10/10/2026"); voltar a pendente restaura a data. Confirmar pede confirmação e mostra **Desfazer**.
+- **Lista:** situação por escrito (Paga, A pagar, Vencida · a pagar, No cartão, Prevista · recorrência); lista vazia com Despesa/Receita.
+- **Resumo:** resultado do período ("sobraram R$ X") e **fluxo do dinheiro** (de onde veio e para onde foi).
+
+### Dados
+
+- **Data prevista no backup** (`scheduledDate`), igual ao Android 1.6.0 e ao Finan+ web 1.4.0.
+- **Valores exatos:** o texto do número vira centavos direto (`money_from_decimal`, metade para cima), sem multiplicar ponto flutuante.
+- **Teto de segurança** para a soma dos valores e **limites de tamanho** para backups de fora (50.000 lançamentos, 100 contas, 100 cartões, 1.000 recorrências, 1.000 metas, 500 categorias por tipo). O app não deixa criar além disso; os dados que já estão no computador sempre abrem.
+- Testes novos em `tests/test_core.c` (`/v160/…`).
+
+## Também nesta versão — Ler fatura ou boleto
 
 - **Ler fatura ou boleto, ajustes na tela de conferência:** quando o valor e o vencimento vêm do mesmo código do boleto, o trecho aparece uma vez só ("Valor e vencimento do código do boleto"); a categoria começa em **Outros** (ou Moradia para conta de consumo, ou a sugerida pelo assistente) em vez de Alimentação; na fatura de cartão sem nenhuma compra lançada, o aviso diz "Nenhuma compra deste cartão lançada nesta fatura no Finan+" em vez de "Faltam R$ X em compras".
 

@@ -29,11 +29,16 @@ typedef struct {
     gboolean recurring;
 } TxDraft;
 
-gboolean ops_save_tx(AppState *s, const char *edit_id, const TxDraft *d, OpErr *err);
+/* [today]: um lançamento novo realizado com data futura passa a contar hoje e guarda a data prevista;
+ * confirmar um pendente faz o mesmo (ver scheduled_date). Descrição em branco usa a categoria. */
+gboolean ops_save_tx(AppState *s, const char *edit_id, const TxDraft *d, Day today, OpErr *err);
+/* lançamento novo só vem como realizado por padrão quando a data é hoje */
+#define ops_default_paid(date, today) ((date) == (today))
 /* parcelas seguintes do mesmo grupo (para perguntar se exclui junto) */
 int ops_later_parcels(const AppState *s, const char *id);
 void ops_delete_tx(AppState *s, const char *id, gboolean with_later);
-void ops_toggle_paid(AppState *s, const char *id);
+/* ao confirmar, a data vira [today] e a original fica como prevista; ao voltar a pendente, a prevista volta */
+void ops_toggle_paid(AppState *s, const char *id, Day today);
 gboolean ops_can_toggle_paid(const Tx *t);
 Ym ops_resumed_last(Ym last, Day today);
 

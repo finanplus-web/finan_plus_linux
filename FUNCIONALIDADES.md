@@ -6,7 +6,7 @@ Lista completa do que o app faz e de onde fica cada coisa, comparada com o app A
 
 | O quê | Como funciona |
 |---|---|
-| Barra lateral | Início, Lançamentos, Relatórios, Assistente e Ajustes. No rodapé, o saldo atual e o previsto para o fim do mês ficam sempre à vista. |
+| Barra lateral | Início, Lançamentos, Meu dinheiro, Resumo (antes Relatórios), Assistente e Ajustes. No rodapé, o saldo atual e o previsto para o fim do mês ficam sempre à vista. |
 | Colunas que se reorganizam | A largura da janela define o layout. Com **720 px ou mais**, o Início fica em duas colunas (saldo, vencimentos e contas na larga; assistente, limites e metas na estreita), Lançamentos e Relatórios em duas; **abaixo de 720 px**, uma só. |
 | Janela estreita | Abaixo de 720sp a barra lateral vira uma página, com botão de voltar, e os botões do topo ficam só com o ícone. A janela vai até 360 × 480. |
 | Barra superior | Botões "Despesa" e "Receita", busca, ocultar valores, bloquear (quando há PIN) e o menu (PDF, CSV, backup, restaurar, atalhos, sobre). |
@@ -23,7 +23,7 @@ Lista completa do que o app faz e de onde fica cada coisa, comparada com o app A
 | Ctrl+F | Buscar lançamentos |
 | Page Up / Page Down | Mês anterior / próximo mês (no calendário) |
 | Ctrl+K | Perguntar ao assistente |
-| Ctrl+1 … Ctrl+5 (Ctrl+, para Ajustes) | Trocar de seção |
+| Ctrl+1 … Ctrl+6 (Ctrl+, para Ajustes) | Trocar de seção (Início, Lançamentos, Meu dinheiro, Resumo, Assistente, Ajustes) |
 | Ctrl+H | Ocultar ou mostrar valores |
 | Ctrl+L | Bloquear agora (com PIN) |
 | Ctrl+P / Ctrl+E | Relatório em PDF / exportar CSV |
@@ -77,7 +77,13 @@ Com um diálogo aberto, os atalhos globais esperam, para não abrir um editor po
 - Geradas na abertura e na virada do dia. Meses em que o app ficou fechado são recuperados, até 24 de uma vez, e nunca antes da data de início.
 - Dia 31 vira o último dia em meses mais curtos. Recorrências podem ser pausadas.
 
-## Relatórios
+## Meu dinheiro
+
+Contas e cartões (com a fatura atual e "Pagar fatura"), limites mensais, metas com plano, atalho para o simulador e categorias (minimizadas; **Maximizar** mostra a lista e o campo de nova categoria). Saíram do Início e de Ajustes, que ficou em grupos: Personalização, Planejamento e automação, Segurança e dados e Aplicativo.
+
+## Resumo (antes Relatórios)
+
+Além do que está abaixo: **resultado do período** e **fluxo do dinheiro** (de onde veio, por categoria de receita, e para onde foi, por categoria de despesa e a sobra).
 
 - O mesmo **‹ mês ›** e **Período e filtros** de Lançamentos (o período é compartilhado), botão **PDF** no título. Só valores realizados.
 - **Resumo:** Receitas e Despesas com comparação justa (mês atual contra os mesmos dias do mês anterior; outro mês contra o anterior inteiro; período livre contra o mesmo tamanho logo antes).

@@ -307,7 +307,7 @@ static GtkWidget *day_box(Day d, const CalDay *day) {
     if (day && !app_hidden() && (day->income || day->expense)) {
         Cents net = cal_day_net(day);
         char buf[40];
-        g_string_append_printf(sub, " · saldo do dia %s%s", net > 0 ? "+ " : net < 0 ? "− " : "", money_format(net < 0 ? -net : net, buf));
+        g_string_append_printf(sub, " · resultado das movimentações deste dia %s%s", net > 0 ? "+ " : net < 0 ? "− " : "", money_format(net < 0 ? -net : net, buf));
     }
     w_add(c, w_label(sub->str, "fin-muted"));
     g_string_free(sub, TRUE);

@@ -57,10 +57,19 @@ static gboolean jnum(JsonNode *n, double *out) {
 #define MAX_ABS_REAIS 9999999999999.99
 
 /* Dinheiro do backup: número ou texto numérico; booleano não vale (true virava R$ 1,00) e valor acima do limite vira 0. */
+/* O texto do número vira centavos direto (money_from_decimal), sem multiplicar ponto flutuante:
+ * 1.005 dá R$ 1,01, como no Android e no Finan+ web. */
 static Cents jcents(JsonNode *n) {
-    double d;
-    if (is_value(n, G_TYPE_BOOLEAN)) return 0;
-    return jnum(n, &d) && fabs(d) <= MAX_ABS_REAIS ? money_from_reais(d) : 0;
+    Cents c = 0;
+    g_autofree char *txt = NULL;
+    if (is_value(n, G_TYPE_INT64)) txt = g_strdup_printf("%" G_GINT64_FORMAT, json_node_get_int(n));
+    else if (is_value(n, G_TYPE_DOUBLE)) { double d = json_node_get_double(n); if (!isfinite(d) || fabs(d) > MAX_ABS_REAIS) return 0; txt = num_to_string(d); }
+    else if (is_value(n, G_TYPE_STRING)) {
+        double d;
+        if (!jnum(n, &d)) return 0;
+        txt = g_strdup(json_node_get_string(n));
+    } else return 0;
+    return money_from_decimal(txt, &c) ? c : 0;
 }
 
 static int jint_in(JsonNode *n, int a, int b, int def) {
@@ -139,11 +148,21 @@ static char *id_for(Ctx *c, JsonNode *n) {
 
 /* ------------------------------------------------------------------ normalização */
 
-static AppState *normalize(JsonNode *root, Dropped *d, GError **error) {
+static gboolean too_many(JsonArray *a, guint max) { return a && json_array_get_length(a) > max; }
+
+static AppState *normalize(JsonNode *root, Dropped *d, gboolean enforce_limits, GError **error) {
     JsonObject *r = jobj(root);
     if (!r) { g_set_error(error, BACKUP_ERROR, 1, "Formato inválido"); return NULL; }
     JsonArray *raw_txs = jarr(mem(r, "txs"));
     if (!raw_txs) { g_set_error(error, BACKUP_ERROR, 2, "Backup sem lista de lançamentos"); return NULL; }
+    /* limites de quantidade só para arquivos de fora: os dados do próprio app sempre abrem */
+    if (enforce_limits) {
+        const char *what = too_many(raw_txs, LIMIT_TXS) ? "lançamentos" : too_many(jarr(mem(r, "accounts")), LIMIT_ACCOUNTS) ? "contas"
+            : too_many(jarr(mem(r, "cards")), LIMIT_CARDS) ? "cartões" : too_many(jarr(mem(r, "recurring")), LIMIT_RECURRING) ? "recorrências"
+            : too_many(jarr(mem(r, "goals")), LIMIT_GOALS) ? "metas"
+            : (too_many(jarr(mem(jobj(mem(r, "cats")), "expense")), LIMIT_CATEGORIES) || too_many(jarr(mem(jobj(mem(r, "cats")), "income")), LIMIT_CATEGORIES)) ? "categorias" : NULL;
+        if (what) { g_set_error(error, BACKUP_ERROR, 8, "Muitas %s no backup", what); return NULL; }
+    }
 
     Dropped dd = {0};
     Ctx c = {g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL)};
@@ -236,10 +255,12 @@ static AppState *normalize(JsonNode *root, Dropped *d, GError **error) {
         g_autofree char *desc = jstr(mem(o, "desc"), 200);
         g_autofree char *cat = jstr(mem(o, "category"), 40);
         g_autofree char *acc = ACC_OF(mem(o, "accountId"));
+        gboolean paid = *card_id ? TRUE : !jis_false(mem(o, "paid"));
         Tx *t = tx_new(id, kind, value, date, *desc ? desc : "Sem descrição",
-                       *cat ? cat : (*card_pay ? CARD_PAYMENT_CAT : "Outros"),
-                       *card_id ? TRUE : !jis_false(mem(o, "paid")), acc, card_id);
+                       *cat ? cat : (*card_pay ? CARD_PAYMENT_CAT : "Outros"), paid, acc, card_id);
         tx_set_str(&t->card_payment, card_pay);
+        /* data prevista: só em lançamento realizado de conta (não cartão nem pagamento de fatura) */
+        if (paid && !*card_id && !*card_pay) t->scheduled_date = jdate(mem(o, "scheduledDate"));
         g_autofree char *rid = jsafe_id(mem(o, "recurringId"));
         g_autofree char *gid = jsafe_id(mem(o, "groupId"));
         tx_set_str(&t->recurring_id, rid);
@@ -293,11 +314,20 @@ static AppState *normalize(JsonNode *root, Dropped *d, GError **error) {
 #undef ACC_OF
 #undef CARD_OF
     g_hash_table_unref(c.used);
+    if (!app_money_fits(s, 0, 0)) {
+        app_state_free(s);
+        g_set_error(error, BACKUP_ERROR, 9, "O total dos valores excede o limite seguro");
+        return NULL;
+    }
     if (d) *d = dd;
     return s;
 }
 
 AppState *backup_parse(const char *text, gssize len, Dropped *dropped, GError **error) {
+    return backup_parse_ext(text, len, dropped, TRUE, error);
+}
+
+AppState *backup_parse_ext(const char *text, gssize len, Dropped *dropped, gboolean enforce_limits, GError **error) {
     if (!text) { g_set_error(error, BACKUP_ERROR, 3, "Arquivo vazio"); return NULL; }
     gsize n = len < 0 ? strlen(text) : (gsize)len;
     if (n > BACKUP_MAX_BYTES) { g_set_error(error, BACKUP_ERROR, 4, "Arquivo grande demais"); return NULL; }
@@ -311,7 +341,7 @@ AppState *backup_parse(const char *text, gssize len, Dropped *dropped, GError **
         g_set_error(error, BACKUP_ERROR, 7, "JSON inválido: %s", e->message);
         return NULL;
     }
-    return normalize(json_parser_get_root(p), dropped, error);
+    return normalize(json_parser_get_root(p), dropped, enforce_limits, error);
 }
 
 /* ------------------------------------------------------------------ escrita */
@@ -367,6 +397,7 @@ char *backup_to_json(const AppState *s, const char *app_version) {
         if (t->recurring_id[0]) jks(o, "recurringId", t->recurring_id);
         if (t->group_id[0]) jks(o, "groupId", t->group_id);
         if (t->parcel_total > 0) g_string_append_printf(o, ",\"parcel\":{\"n\":%d,\"total\":%d}", t->parcel_n, t->parcel_total);
+        if (t->scheduled_date != DAY_NONE) jks(o, "scheduledDate", day_iso(t->scheduled_date, b));
         g_string_append_c(o, '}');
     }
     g_string_append(o, "],\"goals\":[");

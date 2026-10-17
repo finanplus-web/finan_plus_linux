@@ -25,6 +25,12 @@ void show_about(void) {
     adw_about_dialog_add_legal_section(a, "libsecret e json-glib", "© The GNOME Project", GTK_LICENSE_LGPL_2_1, NULL);
     adw_about_dialog_set_release_notes_version(a, APP_VERSION);
     adw_about_dialog_set_release_notes(a,
+        "<p>1.3.0: o mesmo visual e as mesmas regras da versão 1.6.0 do app Android:</p>"
+        "<ul><li>Nova seção Meu dinheiro (contas, cartões, limites, metas, simulador e categorias); Relatórios virou Resumo, com o fluxo do dinheiro</li>"
+        "<li>Início com o que falta receber e pagar e os próximos 3 vencimentos; Ajustes em grupos</li>"
+        "<li>Formulário mais simples: descrição opcional e \u201cMais opções\u201d</li>"
+        "<li>Lançamento de outro dia começa pendente; ao confirmar, a data real e a prevista ficam guardadas, com Desfazer</li>"
+        "<li>Backup com valores exatos (sem perder centavos) e limites de tamanho; Ler fatura ou boleto</li></ul>"
         "<p>1.2.1: receitas e despesas fixas (recorrências) aparecem nos próximos meses como \"Previsto\" no calendário, na Lista e no saldo previsto; clique num previsto para abrir a recorrência. Nada é gravado antes da hora.</p>"
         "<p>1.2.0: o que chegou ao app Android e ao Finan+ web:</p>"
         "<ul><li>Calendário de lançamentos (Lançamentos › Calendário), com o saldo de cada dia e lançar direto numa data</li>"
@@ -62,9 +68,10 @@ static const char *SHORTCUTS_UI =
     "<child><object class='GtkShortcutsGroup'><property name='title'>Navegação</property>"
     "<child><object class='GtkShortcutsShortcut'><property name='title'>Início</property><property name='accelerator'>&lt;Control&gt;1</property></object></child>"
     "<child><object class='GtkShortcutsShortcut'><property name='title'>Lançamentos</property><property name='accelerator'>&lt;Control&gt;2</property></object></child>"
-    "<child><object class='GtkShortcutsShortcut'><property name='title'>Relatórios</property><property name='accelerator'>&lt;Control&gt;3</property></object></child>"
-    "<child><object class='GtkShortcutsShortcut'><property name='title'>Assistente</property><property name='accelerator'>&lt;Control&gt;4</property></object></child>"
-    "<child><object class='GtkShortcutsShortcut'><property name='title'>Ajustes</property><property name='accelerator'>&lt;Control&gt;5 &lt;Control&gt;comma</property></object></child>"
+    "<child><object class='GtkShortcutsShortcut'><property name='title'>Meu dinheiro</property><property name='accelerator'>&lt;Control&gt;3</property></object></child>"
+    "<child><object class='GtkShortcutsShortcut'><property name='title'>Resumo</property><property name='accelerator'>&lt;Control&gt;4</property></object></child>"
+    "<child><object class='GtkShortcutsShortcut'><property name='title'>Assistente</property><property name='accelerator'>&lt;Control&gt;5</property></object></child>"
+    "<child><object class='GtkShortcutsShortcut'><property name='title'>Ajustes</property><property name='accelerator'>&lt;Control&gt;6 &lt;Control&gt;comma</property></object></child>"
     "</object></child>"
     "<child><object class='GtkShortcutsGroup'><property name='title'>Privacidade e dados</property>"
     "<child><object class='GtkShortcutsShortcut'><property name='title'>Ocultar ou mostrar valores</property><property name='accelerator'>&lt;Control&gt;h</property></object></child>"

@@ -206,6 +206,9 @@ typedef struct {
     GtkWidget *desc, *value, *cat, *method, *card, *account, *date, *paid, *reps, *mode, *recurring;
     GtkWidget *hint, *hint_title, *hint_src, *hint_why_box;
     GtkWidget *bill; /* atalho "Ler fatura ou boleto" (só despesa nova) */
+    GtkWidget *subtitle, *more_btn, *more; /* "Mais opções" (1.6.0): conta, situação, parcelas e repetição */
+    gboolean paid_touched;                  /* a pessoa escolheu a situação: trocar a data não muda mais */
+    gboolean is_new;
     char *hint_cat;
     Categorizer *cz[2];
 } TxEd;
@@ -223,6 +226,29 @@ static gboolean tx_card_mode(TxEd *e) {
     return e->kind == KIND_EXPENSE && APP->state->cards->len && !e->payment && row_combo_get(e->method) == 1;
 }
 
+/* situação: 0 = já paga/recebida, 1 = a pagar/receber (rótulos conforme o tipo) */
+static void tx_set_paid_items(TxEd *e, gboolean paid) {
+    g_autoptr(GPtrArray) n = g_ptr_array_new();
+    g_ptr_array_add(n, (gpointer)(e->kind == KIND_INCOME ? "Já recebida" : "Já paga"));
+    g_ptr_array_add(n, (gpointer)(e->kind == KIND_INCOME ? "A receber" : "A pagar"));
+    g_signal_handlers_block_matched(e->paid, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, e);
+    combo_set_items(e->paid, n, n->pdata[paid ? 0 : 1]);
+    g_signal_handlers_unblock_matched(e->paid, G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, e);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(e->paid), e->kind == KIND_INCOME ? "Situação da receita" : "Situação da despesa");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(e->paid), paid ? "O valor será considerado no saldo realizado da conta."
+                                                             : "O valor ficará pendente até ser recebido ou pago.");
+}
+
+static void tx_update_titles(TxEd *e) {
+    const char *title = e->payment ? "Pagamento de fatura"
+                        : e->kind == KIND_INCOME ? (e->is_new ? "Nova receita" : "Editar receita") : (e->is_new ? "Nova despesa" : "Editar despesa");
+    adw_dialog_set_title(e->f->dialog, title);
+    gtk_button_set_label(GTK_BUTTON(e->f->save), e->payment ? "Registrar pagamento" : e->kind == KIND_INCOME ? "Salvar receita" : "Salvar despesa");
+    if (e->subtitle) gtk_label_set_text(GTK_LABEL(e->subtitle), e->kind == KIND_INCOME ? "Registre uma entrada de dinheiro" : "Registre uma saída de dinheiro");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(e->value), e->kind == KIND_INCOME ? "Valor da receita (R$)" : "Valor da despesa (R$)");
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(e->account), e->payment ? "Pago com a conta" : e->kind == KIND_INCOME ? "Conta de destino" : "Conta");
+}
+
 static void tx_update_visibility(TxEd *e) {
     gboolean can_card = e->kind == KIND_EXPENSE && APP->state->cards->len && !e->payment;
     gboolean card = tx_card_mode(e);
@@ -230,9 +256,11 @@ static void tx_update_visibility(TxEd *e) {
     gtk_widget_set_visible(e->card, card);
     gtk_widget_set_visible(e->account, !card);
     if (e->paid) {
-        gtk_widget_set_visible(e->paid, !card && !e->payment);
-        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(e->paid), e->kind == KIND_INCOME ? "Receita já recebida" : "Despesa já paga");
+        GtkWidget *grp = gtk_widget_get_ancestor(e->paid, ADW_TYPE_PREFERENCES_GROUP);
+        gtk_widget_set_visible(grp ? grp : e->paid, !card && !e->payment);
+        tx_set_paid_items(e, row_combo_get(e->paid) == 0);
     }
+    tx_update_titles(e);
     if (e->mode) gtk_widget_set_visible(e->mode, adw_spin_row_get_value(ADW_SPIN_ROW(e->reps)) > 1);
     if (e->bill) gtk_widget_set_visible(e->bill, e->kind == KIND_EXPENSE);
 }
@@ -317,7 +345,7 @@ static void tx_save(GtkButton *b, TxEd *e) {
         .value = row_text(e->value),
         .category = combo_name(e->cat),
         .date = date,
-        .paid = e->paid ? row_switch_get(e->paid) : TRUE,
+        .paid = e->paid ? row_combo_get(e->paid) == 0 : TRUE,
         .account_id = account_at(row_combo_get(e->account)),
         .card_id = card ? card_at(row_combo_get(e->card)) : "",
         .reps = e->reps ? (int)adw_spin_row_get_value(ADW_SPIN_ROW(e->reps)) : 1,
@@ -325,8 +353,9 @@ static void tx_save(GtkButton *b, TxEd *e) {
         .recurring = e->recurring ? row_switch_get(e->recurring) : FALSE,
     };
     OpErr err;
-    gboolean ok = ops_save_tx(APP->state, e->id, &d, &err);
-    apply(e->f, ok, &err, e->id ? "Lançamento atualizado" : d.reps > 1 ? "Parcelas lançadas" : "Lançamento salvo");
+    gboolean ok = ops_save_tx(APP->state, e->id, &d, APP->today, &err);
+    apply(e->f, ok, &err, e->id ? (e->kind == KIND_INCOME ? "Receita atualizada" : "Despesa atualizada")
+                          : d.reps > 1 ? "Parcelas lançadas" : e->kind == KIND_INCOME ? "Receita salva" : "Despesa salva");
 }
 
 typedef struct { char *id; Frame *f; } DelCtx;
@@ -353,6 +382,32 @@ static void tx_delete(GtkButton *b, TxEd *e) {
     dlg_confirm("Excluir lançamento", "Excluir este lançamento?", "Excluir", TRUE, tx_delete_confirmed, d, del_ctx_free);
 }
 
+static void tx_set_more(TxEd *e, gboolean open) {
+    gtk_revealer_set_reveal_child(GTK_REVEALER(e->more), open);
+    GtkWidget *c = adw_button_content_new();
+    adw_button_content_set_label(ADW_BUTTON_CONTENT(c), open ? "Menos opções" : "Mais opções");
+    g_autofree char *ic = icon_name("expand-more");
+    adw_button_content_set_icon_name(ADW_BUTTON_CONTENT(c), ic);
+    gtk_button_set_child(GTK_BUTTON(e->more_btn), c);
+    gtk_accessible_update_state(GTK_ACCESSIBLE(e->more_btn), GTK_ACCESSIBLE_STATE_EXPANDED, open, -1);
+}
+
+static void on_more(GtkButton *b, TxEd *e) { (void)b; tx_set_more(e, !gtk_revealer_get_reveal_child(GTK_REVEALER(e->more))); }
+
+static void on_paid_changed(GObject *o, GParamSpec *p, TxEd *e) {
+    (void)o; (void)p;
+    e->paid_touched = TRUE;
+    tx_set_paid_items(e, row_combo_get(e->paid) == 0);
+}
+
+/* lançamento novo: trocar a data acompanha a situação (hoje = realizado) até a pessoa escolher por conta própria */
+static void on_date_changed(GtkEditable *ed, TxEd *e) {
+    (void)ed;
+    Day d;
+    if (!e->is_new || e->paid_touched || !e->paid || !row_date_get(e->date, &d) || d == DAY_NONE) return;
+    tx_set_paid_items(e, ops_default_paid(d, APP->today));
+}
+
 void editor_tx(Kind kind, const char *id) { editor_tx_on(kind, id ? DAY_NONE : APP->today, id); }
 
 void editor_tx_on(Kind kind, Day on, const char *id) {
@@ -363,13 +418,16 @@ void editor_tx_on(Kind kind, Day on, const char *id) {
     e->id = tx ? g_strdup(tx->id) : NULL;
     e->payment = tx && !tx_is_flow(tx);
     e->kind = tx ? tx->kind : kind;
-    Frame *f = frame_new(tx ? "Editar lançamento" : "Novo lançamento", e->payment ? "" : "Registre uma receita ou despesa", "Salvar");
+    e->is_new = tx == NULL;
+    Frame *f = frame_new(tx ? "Editar lançamento" : "Novo lançamento", "", "Salvar");
     e->f = f;
     g_object_set_data_full(G_OBJECT(f->dialog), "ed", e, (GDestroyNotify)tx_ed_free);
 
     if (e->payment) {
-        w_add(f->content, w_label_wrap("Pagamento de fatura: debita a conta e abate da fatura do cartão. Não conta como despesa nova.", "fin-muted"));
+        w_add(f->content, w_label_wrap("Este pagamento abate o valor da fatura e da conta, sem registrar uma nova despesa.", "fin-muted"));
     } else {
+        e->subtitle = w_label_wrap("", "fin-muted");
+        w_add(f->content, e->subtitle);
         GtkWidget *seg = w_hbox(0);
         gtk_widget_add_css_class(seg, "linked");
         gtk_widget_set_halign(seg, GTK_ALIGN_FILL);
@@ -391,10 +449,14 @@ void editor_tx_on(Kind kind, Day on, const char *id) {
         e->bill = w_button("Ler fatura ou boleto", "receipt-long", "pill", tx_open_bill, e, NULL);
         w_add(f->content, e->bill);
     }
-    GtkWidget *g1 = group(f->content, NULL);
-    e->desc = row_entry("Descrição", tx ? tx->desc : "", 200);
-    gtk_widget_set_tooltip_text(e->desc, "Ex.: Mercado");
-    gadd(g1, e->desc);
+
+    /* valor em destaque */
+    GtkWidget *gv = group(f->content, NULL);
+    char vb[32];
+    e->value = row_entry("Valor (R$)", tx ? money_input(tx->value, vb) : "", 20);
+    gtk_widget_add_css_class(e->value, "fin-value-row");
+    gtk_widget_set_tooltip_text(e->value, "Ex.: 59,90 ou 1.500,00");
+    gadd(gv, e->value);
 
     /* sugestão de categoria do assistente */
     if (!e->payment) {
@@ -423,36 +485,57 @@ void editor_tx_on(Kind kind, Day on, const char *id) {
         w_add(f->content, e->hint);
     }
 
-    GtkWidget *g2 = group(f->content, NULL);
-    char vb[32];
-    e->value = row_entry("Valor (R$)", tx ? money_input(tx->value, vb) : "", 20);
-    gtk_widget_set_tooltip_text(e->value, "Ex.: 59,90 ou 1.500,00");
-    gadd(g2, e->value);
+    /* categoria, data e descrição (opcional) */
+    GtkWidget *gm = group(f->content, NULL);
     g_autoptr(GPtrArray) cats = cats_with(e->kind, tx ? tx->category : NULL);
     e->cat = combo_of("Categoria", cats, tx ? tx->category : app_first_category(s, e->kind));
     adw_combo_row_set_expression(ADW_COMBO_ROW(e->cat), gtk_property_expression_new(GTK_TYPE_STRING_OBJECT, NULL, "string"));
     adw_combo_row_set_enable_search(ADW_COMBO_ROW(e->cat), TRUE);
-    gadd(g2, e->cat);
+    gadd(gm, e->cat);
+    e->date = row_date("Data", tx ? tx->date : on, FALSE);
+    gadd(gm, e->date);
+    e->desc = row_entry("Descrição (opcional)", tx ? tx->desc : "", 200);
+    gtk_widget_set_tooltip_text(e->desc, "Ex.: Mercado. Em branco, o lançamento usa o nome da categoria.");
+    gadd(gm, e->desc);
+
+    /* "Mais opções": conta ou cartão, situação, parcelas e repetição (aberto ao editar) */
+    e->more_btn = gtk_button_new();
+    gtk_widget_add_css_class(e->more_btn, "flat");
+    gtk_widget_set_halign(e->more_btn, GTK_ALIGN_START);
+    w_add(f->content, e->more_btn);
+    e->more = gtk_revealer_new();
+    GtkWidget *mb = w_vbox(14);
+    gtk_revealer_set_child(GTK_REVEALER(e->more), mb);
+    w_add(f->content, e->more);
+
+    GtkWidget *gd = group(mb, "Detalhes adicionais");
     const char *methods[2] = {"Conta / dinheiro", "Cartão de crédito"};
     e->method = row_combo("Forma de pagamento", methods, 2, tx && tx_is_card(tx) ? 1 : 0);
-    gadd(g2, e->method);
+    gadd(gd, e->method);
     g_autoptr(GPtrArray) cn = card_names();
     e->card = row_combo("Cartão", (const char *const *)cn->pdata, (int)cn->len, tx && tx_is_card(tx) ? index_of_card(tx->card_id) : 0);
-    gadd(g2, e->card);
+    gadd(gd, e->card);
     g_autoptr(GPtrArray) an = account_names();
     e->account = row_combo("Conta", (const char *const *)an->pdata, (int)an->len, tx ? index_of_account(tx->account_id) : 0);
-    gadd(g2, e->account);
-    e->date = row_date("Data", tx ? tx->date : on, FALSE);
-    gadd(g2, e->date);
+    gadd(gd, e->account);
+    if (tx && tx->scheduled_date != DAY_NONE) {
+        char sd[11];
+        g_autofree char *note = g_strdup_printf("Data prevista original: %s. Ela será restaurada se o lançamento voltar a ficar pendente.", day_br(tx->scheduled_date, sd));
+        adw_preferences_group_set_description(ADW_PREFERENCES_GROUP(gd), note);
+    }
     if (!e->payment) {
-        /* numa data futura (lançado pelo calendário), o lançamento novo começa como pendente */
-        e->paid = row_switch("Despesa já paga", NULL, tx ? tx->paid : on <= APP->today);
-        gadd(g2, e->paid);
+        /* novo: só vem como realizado se a data for hoje (Android 1.6.0) */
+        GtkWidget *gs = group(mb, NULL);
+        const char *two[2] = {"Já paga", "A pagar"};
+        gboolean paid0 = tx ? tx->paid : ops_default_paid(on, APP->today);
+        e->paid = row_combo("Situação da despesa", two, 2, paid0 ? 0 : 1);
+        gadd(gs, e->paid);
+        g_signal_connect(e->paid, "notify::selected", G_CALLBACK(on_paid_changed), e);
     }
     if (!tx) {
-        GtkWidget *g3 = group(f->content, "Repetição");
+        GtkWidget *g3 = group(mb, "Parcelamento e repetição");
         e->reps = adw_spin_row_new_with_range(1, 60, 1);
-        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(e->reps), "Parcelas");
+        adw_preferences_row_set_title(ADW_PREFERENCES_ROW(e->reps), "Número de parcelas");
         adw_action_row_set_subtitle(ADW_ACTION_ROW(e->reps), "1 = à vista");
         gadd(g3, e->reps);
         const char *modes[2] = {"O total da compra (divide entre as parcelas)", "O valor de cada parcela"};
@@ -462,6 +545,9 @@ void editor_tx_on(Kind kind, Day on, const char *id) {
         gadd(g3, e->recurring);
         g_signal_connect(e->reps, "notify::value", G_CALLBACK(on_tx_changed), e);
     }
+    tx_set_more(e, tx != NULL);
+    g_signal_connect(e->more_btn, "clicked", G_CALLBACK(on_more), e);
+    g_signal_connect(e->date, "changed", G_CALLBACK(on_date_changed), e);
     g_signal_connect(e->method, "notify::selected", G_CALLBACK(on_tx_changed), e);
     g_signal_connect(e->desc, "changed", G_CALLBACK(on_desc), e);
     g_signal_connect(e->cat, "notify::selected", G_CALLBACK(on_cat_changed), e);
@@ -471,7 +557,7 @@ void editor_tx_on(Kind kind, Day on, const char *id) {
     if (tx) g_signal_connect(delete_button(f, "Excluir lançamento"), "clicked", G_CALLBACK(tx_delete), e);
     tx_update_visibility(e);
     tx_hint_update(e);
-    frame_present(f, tx ? NULL : e->desc);
+    frame_present(f, tx ? NULL : e->value);
 }
 
 /* ================================================================ meta */

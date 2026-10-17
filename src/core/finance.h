@@ -99,6 +99,9 @@ void cat_total_free(CatTotal *c);
 /* Contas pendentes atrasadas ou que vencem em até [days] dias, receitas a receber e faturas a vencer.
  * Devolve Reminder* com free func, ordenado por data. */
 GPtrArray *reminders(const AppState *s, Day today, int days);
+/* Próximos compromissos da tela inicial: contas pendentes e faturas abertas, em ordem de vencimento,
+ * no máximo [limit] (o Início mostra 3). Reminder* com free func. */
+GPtrArray *upcoming_dues(const AppState *s, Day today, int limit);
 /* Próximo compromisso (conta pendente ou fatura em aberto); NULL se não houver. reminder_free. */
 Reminder *next_due(const AppState *s, Day today);
 void reminder_free(Reminder *r);

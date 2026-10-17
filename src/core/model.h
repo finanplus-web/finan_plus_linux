@@ -94,6 +94,8 @@ typedef struct {
     char *group_id;
     int parcel_n;
     int parcel_total;
+    /* data prevista preservada quando um lançamento pendente é realizado em outro dia (DAY_NONE = não há) */
+    Day scheduled_date;
 } Tx;
 
 #define tx_is_flow(t) ((t)->card_payment[0] == '\0')
@@ -175,6 +177,26 @@ gboolean app_limit(const AppState *s, const char *cat, Cents *out);
 gboolean app_has_category(const AppState *s, Kind k, const char *name);
 const char *app_first_category(const AppState *s, Kind k);
 
+/* Quantidades máximas aceitas num backup externo (iguais ao Android, AppState.Limits). O app também
+ * não deixa criar além delas, para que todo backup gerado por ele possa ser restaurado. */
+#define LIMIT_TXS 50000
+#define LIMIT_ACCOUNTS 100
+#define LIMIT_CARDS 100
+#define LIMIT_RECURRING 1000
+#define LIMIT_GOALS 1000
+#define LIMIT_CATEGORIES 500
+/* quantidades de cada coleção (lançamentos, contas, cartões, recorrências, metas, categorias de despesa/receita) */
+typedef struct { guint txs, accounts, cards, recurring, goals, cats[2]; } AppCounts;
+AppCounts app_counts(const AppState *s);
+/* Mensagem (estática) se passar de [before] para [after] cria itens além dos limites; NULL = dentro.
+ * Só conta quando a coleção cresce: quem já tinha mais itens continua editando normalmente. */
+const char *app_growth_error(AppCounts before, AppCounts after);
+/* Valores e somas cabem no maior inteiro exato do Finan+ web (Number.MAX_SAFE_INTEGER, em centavos),
+ * trocando os valores [minus] por [plus] (absolutos; 0 = nada). */
+#define MONEY_SAFE_TOTAL G_GINT64_CONSTANT(9007199254740991)
+#define MONEY_MAX_ABS G_GINT64_CONSTANT(999999999999999)
+gboolean app_money_fits(const AppState *s, Cents minus, Cents plus);
+
 /* ids únicos (tempo + sequência + aleatório, base 36), g_free */
 char *ids_new(void);
 
@@ -188,6 +210,9 @@ char *money_input(Cents c, char *buf);
 char *money_reais_json(Cents c, char *buf);
 /* reais (double do JSON) → centavos, arredondando como Math.round do Kotlin */
 Cents money_from_reais(double d);
+/* Decimal em texto ("12.345", "1e3", "-0.5") → centavos, metade para cima (HALF_UP, como o BigDecimal do Android),
+ * sem multiplicar ponto flutuante (1.005 * 100 dava 100,4999…). FALSE se inválido ou acima de MONEY_MAX_ABS. */
+gboolean money_from_decimal(const char *text, Cents *out);
 /* Aceita "1.500,50", "1500,50", "1500.50", "1,500.25", "R$ 2.000", "-50". */
 gboolean money_parse(const char *input, Cents *out);
 
