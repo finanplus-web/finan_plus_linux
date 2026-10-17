@@ -32,13 +32,28 @@ cp "$ROOT/usr/share/applications/com.finanplus.FinanPlus.desktop" "$ROOT/"
 cp "$ROOT/usr/share/icons/hicolor/256x256/apps/com.finanplus.FinanPlus.png" "$ROOT/"
 ln -sf com.finanplus.FinanPlus.png "$ROOT/.DirIcon"
 
-# Copia bibliotecas específicas do núcleo para maior portabilidade entre distribuições
+# Copia bibliotecas específicas do núcleo para maior portabilidade entre distribuições.
+# A biblioteca de PDF (poppler) NÃO vai junto: a cópia do Ubuntu depende de libjpeg.so.8, que o Debian
+# não tem (usa libjpeg.so.62), e o app nem abria no Debian 13 (1.3.0). A libpoppler-glib.so.8 do próprio
+# sistema tem a mesma interface em todas as distribuições, e é a que o .deb já usa.
 mkdir -p "$ROOT/usr/lib"
-for lib in libsodium.so* libsecret-1.so* libjson-glib-1.0.so* libpoppler-glib.so* libpoppler.so*; do
+for lib in libsodium.so* libsecret-1.so* libjson-glib-1.0.so*; do
     for dir in /usr/lib /usr/lib/x86_64-linux-gnu /usr/lib64; do
         if [ -d "$dir" ]; then
             find "$dir" -maxdepth 1 -name "$lib" -exec cp -a -t "$ROOT/usr/lib/" {} + 2>/dev/null || true
         fi
+    done
+done
+
+# Toda biblioteca copiada só pode depender do que existe em qualquer distribuição recente (glib, libc…):
+# nada que seja exclusivo do sistema onde o AppImage foi gerado.
+for f in "$ROOT"/usr/lib/*.so.*; do
+    [ -L "$f" ] && continue
+    for need in $(readelf -d "$f" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p'); do
+        case "$need" in
+            libc.so.*|libm.so.*|ld-linux*|libglib-2.0.so.*|libgio-2.0.so.*|libgobject-2.0.so.*|libgmodule-2.0.so.*|libgcrypt.so.*|libgpg-error.so.*|libsodium.so.*) ;;
+            *) echo "Biblioteca copiada $f depende de $need, que pode não existir em outras distribuições" >&2; exit 1 ;;
+        esac
     done
 done
 
