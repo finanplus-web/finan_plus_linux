@@ -106,6 +106,6 @@ jobs:
           gh release upload "v$V" finan-plus_*_*.AppImage --clobber
           if ! gh release view "v$V" --json body --jq .body | grep -q AppImage; then
             gh release view "v$V" --json body --jq .body > notas.md
-            printf '\n\n**AppImage (outras distribuições):** baixe o `.AppImage`, torne executável (`chmod +x finan-plus_%s_x86_64.AppImage`) e execute. Precisa de GTK 4.12+ e libadwaita 1.5+ no sistema; algumas distros pedem o pacote `libfuse2`. Contribuição de @satodu.\n' "$V" >> notas.md
+            printf '\n\n**AppImage (outras distribuições):** baixe o `.AppImage`, torne executável (`chmod +x finan-plus_%s_x86_64.AppImage`) e execute. Precisa de GTK 4.12+, libadwaita 1.5+ e poppler-glib no sistema; algumas distros pedem o pacote `libfuse2`. Contribuição de @satodu.\n' "$V" >> notas.md
             gh release edit "v$V" --notes-file notas.md
           fi

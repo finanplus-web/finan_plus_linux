@@ -37,7 +37,7 @@ Para remover: `sudo apt remove finan-plus`. Os seus dados continuam em `~/.local
 
 Para rodar sem instalar ou em distribuições sem `.deb` (Fedora, Arch Linux, Manjaro, openSUSE Tumbleweed...). Contribuição de [@satodu](https://github.com/satodu).
 
-**Requisitos:** o AppImage leva junto as bibliotecas do núcleo (libsodium, libsecret, json-glib, poppler), mas usa o **GTK 4.12+** e o **libadwaita 1.5+** do sistema, então precisa de uma distribuição atual (ex.: Fedora 40+, Arch, Tumbleweed). Algumas distribuições também pedem o pacote `libfuse2` (ou `fuse2`) para abrir AppImages; sem ele, dá para rodar com `--appimage-extract-and-run`.
+**Requisitos:** o AppImage leva junto as bibliotecas do núcleo (libsodium, libsecret, json-glib), mas usa o **GTK 4.12+**, o **libadwaita 1.5+** e a biblioteca de PDF **poppler-glib** do sistema (pacote `libpoppler-glib8t64` ou `libpoppler-glib8`, que já vem nos desktops comuns), então precisa de uma distribuição atual (ex.: Fedora 40+, Arch, Tumbleweed). Algumas distribuições também pedem o pacote `libfuse2` (ou `fuse2`) para abrir AppImages; sem ele, dá para rodar com `--appimage-extract-and-run`.
 
 1. Baixe o `.AppImage` da [página de versões](https://github.com/finanplus-web/finan_plus_linux/releases/latest).
 2. Torne o arquivo executável e abra:
