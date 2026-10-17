@@ -361,24 +361,28 @@ static void sync_card(BillEd *e) {
 }
 static void on_card_changed(GObject *o, GParamSpec *p, BillEd *e) { (void)o; (void)p; sync_card(e); }
 
+/* lê o PDF escolhido (ou arrastado para a janela) e segue para a leitura */
+static void load_file(BillEd *e, GFile *f) {
+    g_autoptr(GError) err = NULL;
+    g_autoptr(GFileInfo) info = g_file_query_info(f, G_FILE_ATTRIBUTE_STANDARD_SIZE, 0, NULL, NULL);
+    char *data = NULL;
+    gsize len = 0;
+    if (info && g_file_info_get_size(info) > BILL_PDF_MAX_BYTES) dlg_notice("Não foi possível ler", "O arquivo é grande demais para uma fatura (mais de 25 MB).");
+    else if (!g_file_load_contents(f, NULL, &data, &len, NULL, &err)) dlg_notice("Não foi possível ler", err->message);
+    else {
+        if (e->pdf) g_bytes_unref(e->pdf);
+        e->pdf = g_bytes_new_take(data, len);
+        e->vault_failed = FALSE;
+        open_pdf(e, NULL, FALSE);
+    }
+}
+
 static void picked(GObject *src, GAsyncResult *res, gpointer u) {
     BillEd *e = u;
     app_external_end();
     g_autoptr(GError) err = NULL;
     g_autoptr(GFile) f = gtk_file_dialog_open_finish(GTK_FILE_DIALOG(src), res, &err);
-    if (f && !APP->locked) {
-        g_autoptr(GFileInfo) info = g_file_query_info(f, G_FILE_ATTRIBUTE_STANDARD_SIZE, 0, NULL, NULL);
-        char *data = NULL;
-        gsize len = 0;
-        if (info && g_file_info_get_size(info) > BILL_PDF_MAX_BYTES) dlg_notice("Não foi possível ler", "O arquivo é grande demais para uma fatura (mais de 25 MB).");
-        else if (!g_file_load_contents(f, NULL, &data, &len, NULL, &err)) dlg_notice("Não foi possível ler", err->message);
-        else {
-            if (e->pdf) g_bytes_unref(e->pdf);
-            e->pdf = g_bytes_new_take(data, len);
-            e->vault_failed = FALSE;
-            open_pdf(e, NULL, FALSE);
-        }
-    }
+    if (f && !APP->locked) load_file(e, f);
     g_object_unref(e->dialog);
 }
 
@@ -426,7 +430,7 @@ static GtkWidget *page_box(void) {
     return b;
 }
 
-void bill_import_open(const char *card_id) {
+static BillEd *bill_open(const char *card_id) {
     BillEd *e = g_new0(BillEd, 1);
     e->card_id = g_strdup(card_id && app_card(APP->state, card_id) ? card_id : "");
     e->dialog = adw_dialog_new();
@@ -522,6 +526,14 @@ void bill_import_open(const char *card_id) {
     adw_dialog_set_child(e->dialog, tv);
     show(e, "choose");
     adw_dialog_present(e->dialog, GTK_WIDGET(APP->window));
+    return e;
+}
+
+void bill_import_open(const char *card_id) { bill_open(card_id); }
+
+void bill_import_open_file(GFile *file) {
+    if (APP->locked || !file) return;
+    load_file(bill_open(NULL), file);
 }
 
 /* ---------------------------------------------------------------- senha lembrada no cartão */

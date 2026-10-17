@@ -1,5 +1,37 @@
 # Changelog — Finan+ para Linux
 
+## Próxima versão (1.4.0) — Visual novo para telas largas
+
+A janela passa a usar a tela inteira, com o mesmo estilo do Finan+ (cabeçalho, barra lateral, fundo em degradê e cartões arredondados). Antes, cada tela ficava presa numa faixa de até 1.200–1.500 px no meio, e blocos sem dados sumiam, deixando a tela vazia.
+
+### Para quem usa
+
+- **Três colunas** em janelas com 1.400 px de conteúdo ou mais (novo modo de layout); duas colunas entre 720 e 1.400 px; uma abaixo de 720 px. O conteúdo vai até 2.400 px de largura.
+- **Início:** saldo, próximos vencimentos (até 5, uma linha cada: "Hoje", "Amanhã", "Atrasado" ou a data) e assistente; **Evolução do saldo** dia a dia no mês (linha cheia até hoje, tracejada com a previsão até o fim do mês); **Receitas × Despesas** dos últimos 5 meses; **Onde foi o dinheiro** (5 maiores categorias do mês); **Últimos lançamentos**; **Metas** e **Limites do mês**. Os cartões de uma linha ficam da mesma altura, e cada cartão vazio explica o que aparece ali em vez de sumir.
+- **Lançamentos (janelas largas):** período, busca e filtros numa barra no alto; a lista por dia no meio; à direita o resumo do período (com a barra de quanto das receitas as despesas levaram), os **Pendentes** com botão **Pagar**/**Receber** e a área **Ler fatura ou boleto**, onde dá para **soltar o PDF** direto. Botão **Exportar CSV** no alto. Em janelas menores, nada muda.
+- **Resumo:** quatro indicadores no alto (receitas e despesas com a comparação, resultado do período e **gasto médio por dia**); categorias com a rosca e as barras lado a lado; ao lado, fluxo do dinheiro, simulador e o novo **Saldo acumulado** dos últimos 6 meses.
+- **Meu dinheiro:** faixa no alto com **saldo das contas**, **faturas em aberto** e o que fica **livre depois das faturas**; contas e cartões com o valor à direita (clique abre o editor) e a barra do limite usado; contas, metas e limites lado a lado; **categorias em quadradinhos coloridos** ("Gerenciar" abre a lista de antes).
+- **Ajustes:** lista das seções à esquerda, com **ícones coloridos** e o resumo de cada uma, e a seção escolhida aberta à direita (como nas configurações do GNOME). Em janelas estreitas continuam os cartões que abrem e fecham.
+- **Aparência:** os temas aparecem como miniaturas da janela. **Gruvbox** e **Gruvbox OLED** entraram, com as mesmas cores do app Android 1.6; o **Material You saiu** (um backup com "materialBlue" abre no tema Claro, como no Android). Nova opção **Densidade** (Confortável, Padrão, Compacta), guardada só neste computador.
+- **Ícones de categoria coloridos** em todas as listas, sempre na mesma cor por categoria.
+
+### Por dentro
+
+| Arquivo | Mudança |
+|---|---|
+| `src/ui/charts.c`, `charts.h` | Novo: gráfico de linha (com previsão tracejada), barras por mês e miniatura dos temas, em Cairo, nas cores do tema e respeitando "Ocultar valores" |
+| `src/core/finance.c`, `finance.h` | `balance_on` e `balance_series`: saldo das contas no fim de cada dia, só com o que já foi pago ou recebido |
+| `src/core/model.c`, `model.h` | Temas `gruvbox` e `gruvboxOled`; `materialBlue` vira Claro |
+| `src/core/prefs.c`, `prefs.h` | `densidade` em `aparelho.ini` |
+| `src/ui/theme.c` | Paletas Gruvbox; quadradinhos coloridos (`.fin-ico`), lista de Ajustes, linhas compactas, área de soltar PDF e densidade |
+| `src/ui/app.h`, `window.c` | Modo `LAYOUT_XWIDE` (≥ 1.400 px) e `app_apply_density` |
+| `src/ui/page_home.c`, `page_moves.c`, `page_reports.c`, `page_money.c`, `page_settings.c` | Telas novas descritas acima |
+| `src/ui/billsheet.c`, `pages.h` | `bill_import_open_file`: abre "Ler fatura ou boleto" já lendo o PDF solto na janela |
+| `src/ui/widgets.c`, `widgets.h` | `w_icon_tile`, `category_color`, `w_card_head`, `w_sep` |
+| `tests/test_core.c` | `/finance/balance-series` e `/model/theme-ids` |
+
+Para capturas de tela da documentação, `FINAN_PLUS_START_SECTION=dados` (por exemplo) abre Ajustes direto numa seção, como o `FINAN_PLUS_START_PAGE` que já existia.
+
 ## 1.3.0 — Mesmo visual e regras do Android 1.6.0 (17/10/2026)
 
 Traz para o Linux tudo o que entrou no app Android 1.6.0 e no Finan+ web 1.4.0, com o layout de computador.

@@ -23,6 +23,8 @@ typedef struct {
     int window_width;
     int window_height;
     gboolean window_maximized;
+    /* espaçamento da interface (só neste computador): DENSITY_DEFAULT, DENSITY_COMPACT ou DENSITY_COMFY */
+    int density;
     char *last_notified;       /* "AAAA-MM-DD" do último aviso, para não repetir no mesmo dia */
     /* Bloqueio automático (só neste computador; restaurar um backup não muda a segurança):
      * AUTOLOCK_IMMEDIATE, minutos sem usar (1, 5, 15, 30) ou AUTOLOCK_ON_OPEN. */
@@ -36,6 +38,8 @@ typedef struct {
     char *pin_fail_boot;   /* boot_id do Linux na última tentativa ("" = desconhecido) */
     char *path;
 } Prefs;
+
+enum { DENSITY_DEFAULT = 0, DENSITY_COMPACT = 1, DENSITY_COMFY = 2 };
 
 #define AUTOLOCK_ON_OPEN (-1)
 #define AUTOLOCK_IMMEDIATE 0

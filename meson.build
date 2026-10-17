@@ -49,7 +49,7 @@ ui_src = files(
   'src/main.c', 'src/ui/window.c', 'src/ui/theme.c', 'src/ui/widgets.c', 'src/ui/page_home.c',
   'src/ui/page_moves.c', 'src/ui/page_money.c', 'src/ui/page_calendar.c', 'src/ui/simulator.c', 'src/ui/page_reports.c', 'src/ui/page_assist.c', 'src/ui/page_settings.c',
   'src/ui/editors.c', 'src/ui/lock.c', 'src/ui/data.c', 'src/ui/notify.c', 'src/ui/misc.c', 'src/ui/pdf.c',
-  'src/ui/pdf_render.c', 'src/ui/billsheet.c')
+  'src/ui/pdf_render.c', 'src/ui/billsheet.c', 'src/ui/charts.c')
 
 executable('finan-plus', ui_src, resources,
   dependencies: [core_dep, gtk, adw],

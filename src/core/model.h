@@ -71,7 +71,8 @@ const char *kind_json(Kind k);
 gboolean kind_parse(const char *s, Kind *out);
 
 typedef enum {
-    THEME_AUTO, THEME_LIGHT, THEME_MATERIAL, THEME_OLED, THEME_TOKYO, THEME_NORD, THEME_COUNT
+    /* mesma ordem e nomes do app Android 1.6: o Material You saiu e o Gruvbox entrou ("materialBlue" vira Claro) */
+    THEME_AUTO, THEME_LIGHT, THEME_GRUVBOX, THEME_OLED, THEME_GRUVBOX_OLED, THEME_TOKYO, THEME_NORD, THEME_COUNT
 } ThemeId;
 const char *theme_json(ThemeId t);
 const char *theme_label(ThemeId t);

@@ -12,16 +12,18 @@
 static const FinPalette PALETTES[] = {
     /* Claro */
     {FALSE, 0xFFEEF4FF, 0xB8FFFFFF, 0xB8FFFFFF, 0xFF182238, 0xFF5B6579, 0xFF3A5FC8, 0xFFDFE8FF, 0xFFFFFFFF, 0xFFB03A4F, 0xFF1B7351, 0xFFDFE5EF, 0xFFD9E5FF, 0xFFFFE7ED},
-    /* Material (azul) */
-    {FALSE, 0xFFF4F7FF, 0xD1F8FAFF, 0xD1FFFFFF, 0xFF182033, 0xFF5F6778, 0xFF0B57D0, 0xFFDBE7FF, 0xFFFFFFFF, 0xFFBA1A1A, 0xFF146C43, 0xFFDFE5EF, 0xFFDBE7FF, 0xFFE9E7FF},
+    /* Gruvbox (paleta de morhetz, as mesmas cores do Android 1.6): fundo #282828, cartões #32302F, texto creme, azul de destaque */
+    {TRUE, 0xFF282828, 0xFF32302F, 0xFF3C3836, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF3A4442, 0xFF1D2021, 0xFFFF7F7F, 0xFFB8BB26, 0xFF504945, 0xFF282828, 0xFF282828},
     /* OLED Cinza */
     {TRUE, 0xFF181A1F, 0xFF23262D, 0xFF353941, 0xFFF1F3F6, 0xFFA8ADB7, 0xFF8AA8FF, 0xFF30343D, 0xFF10131A, 0xFFFF8A91, 0xFF63D6A5, 0xFF353941, 0xFF181A1F, 0xFF181A1F},
     /* Tokyo Night */
     {TRUE, 0xFF1A1B26, 0xDB24283B, 0x247AA2F7, 0xFFC0CAF5, 0xFF9AA5CE, 0xFF7AA2F7, 0xFF292E42, 0xFF1A1B26, 0xFFF7768E, 0xFF9ECE6A, 0xFF3B4261, 0xFF24283B, 0xFF292E42},
     /* Nord */
     {TRUE, 0xFF2E3440, 0xDB3B4252, 0x1FD8DEE9, 0xFFECEFF4, 0xFFB7C0CF, 0xFF88C0D0, 0xFF434C5E, 0xFF2E3440, 0xFFF0A3A9, 0xFFA3BE8C, 0xFF4C566A, 0xFF3B4252, 0xFF354052},
+    /* Gruvbox OLED: as mesmas cores sobre preto puro; cartões quase pretos com borda fina */
+    {TRUE, 0xFF000000, 0xFF0D0D0C, 0xFF1D2021, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF17201F, 0xFF000000, 0xFFFB4934, 0xFFB8BB26, 0xFF282828, 0xFF000000, 0xFF000000},
 };
-enum { P_LIGHT, P_MATERIAL, P_OLED, P_TOKYO, P_NORD };
+enum { P_LIGHT, P_GRUVBOX, P_OLED, P_TOKYO, P_NORD, P_GRUVBOX_OLED };
 
 static GtkCssProvider *provider = NULL;
 static const FinPalette *current = &PALETTES[P_LIGHT];
@@ -31,7 +33,8 @@ const FinPalette *theme_palette(void) { return current; }
 const FinPalette *theme_palette_for(ThemeId t, gboolean system_dark) {
     switch (t) {
     case THEME_LIGHT: return &PALETTES[P_LIGHT];
-    case THEME_MATERIAL: return &PALETTES[P_MATERIAL];
+    case THEME_GRUVBOX: return &PALETTES[P_GRUVBOX];
+    case THEME_GRUVBOX_OLED: return &PALETTES[P_GRUVBOX_OLED];
     case THEME_OLED: return &PALETTES[P_OLED];
     case THEME_TOKYO: return &PALETTES[P_TOKYO];
     case THEME_NORD: return &PALETTES[P_NORD];
@@ -271,6 +274,68 @@ static char *build_widgets(const FinPalette *p) {
         bg, text, muted, accent, on, accent2, sol, border, track, css(p->red));
 }
 
+/* Cores dos ícones em quadradinho (Ajustes, Meu dinheiro, Início): fundo suave e ícone na cor cheia.
+ * Nos temas claros, tons pastel; nos escuros, a mesma cor clara sobre ela mesma bem transparente. */
+static const struct { const char *name; guint32 light_fg, light_bg, dark_fg; } TILES[] = {
+    {"blue", 0xFF3552CF, 0xFFE3EAFC, 0xFF8AA8FF},   {"green", 0xFF17643F, 0xFFDDF2E7, 0xFF63D6A5},
+    {"orange", 0xFF9A4F0C, 0xFFFDEEDC, 0xFFF2A65A}, {"red", 0xFFA8293F, 0xFFFBE3E7, 0xFFFF8A91},
+    {"purple", 0xFF5B3FB0, 0xFFEDE6FA, 0xFFB9A3FF}, {"yellow", 0xFF7A5A00, 0xFFFDF3D6, 0xFFE8C766},
+    {"teal", 0xFF0E6E77, 0xFFDCF3F4, 0xFF5ED3DB},   {"gray", 0xFF404A5E, 0xFFE4E9F4, 0xFFB7C0CF},
+};
+
+static char *build_extra(const FinPalette *p) {
+    GString *g = g_string_new(NULL);
+    for (guint i = 0; i < G_N_ELEMENTS(TILES); i++) {
+        g_autofree char *fg = css(p->dark ? TILES[i].dark_fg : TILES[i].light_fg);
+        g_autofree char *bg = css(p->dark ? ((TILES[i].dark_fg & 0x00FFFFFF) | 0x2E000000) : TILES[i].light_bg);
+        g_string_append_printf(g, ".fin-ico.%s { background-color: %s; color: %s; }\n", TILES[i].name, bg, fg);
+        g_string_append_printf(g, ".fin-glyph.%s { background-color: %s; color: %s; }\n", TILES[i].name, bg, fg);
+    }
+    guint32 solid = over(p->surface, p->bg);
+    g_autofree char *accent = css(p->accent), *accent2 = css(p->accent2), *muted = css(p->muted), *text = css(p->text),
+                    *stat = css(p->dark ? 0x0FFFFFFF : 0x8CFFFFFF), *sol = css(solid), *border = css(p->border), *track = css(p->track);
+    g_string_append_printf(g,
+        ".fin-ico { border-radius: 12px; min-width: 38px; min-height: 38px; }\n"
+        ".fin-ico.big { border-radius: 14px; min-width: 44px; min-height: 44px; }\n"
+        /* Ajustes: lista de seções à esquerda (como nas configurações do GNOME) */
+        "button.fin-set-item { padding: 10px 12px; border-radius: 16px; background: none; border: none; box-shadow: none; color: %4$s; }\n"
+        "button.fin-set-item:hover { background-color: alpha(%1$s, 0.07); }\n"
+        "button.fin-set-item.selected { background-color: %2$s; }\n"
+        "button.fin-set-item.selected .fin-chevron { color: %1$s; }\n"
+        ".fin-set-group { padding: 12px 12px 4px 12px; }\n"
+        /* linhas compactas dos cartões do Início (vencimentos, últimos lançamentos) */
+        "button.fin-line { padding: 8px 6px; border-radius: 12px; background: none; border: none; box-shadow: none; min-height: 0; color: %4$s; }\n"
+        "button.fin-line:hover { background-color: alpha(%1$s, 0.07); }\n"
+        ".fin-sep { min-height: 1px; background-color: alpha(%3$s, 0.18); }\n"
+        /* barra de filtros de Lançamentos e quadros de valor */
+        ".fin-filterbar { padding: 10px 12px; border-radius: 20px; }\n"
+        ".fin-stat-soft { background-color: %5$s; border-radius: 16px; padding: 12px 14px; }\n"
+        ".fin-drop { border: 2px dashed alpha(%1$s, 0.45); border-radius: 16px; padding: 16px; }\n"
+        ".fin-drop.over { background-color: alpha(%1$s, 0.10); border-color: %1$s; }\n"
+        /* categorias em quadradinhos (Meu dinheiro) */
+        "button.fin-cat-tile { background-color: %5$s; border-radius: 16px; padding: 12px 6px; border: none; box-shadow: none; color: %4$s; }\n"
+        "button.fin-cat-tile:hover { background-color: alpha(%1$s, 0.10); }\n"
+        /* prévia do tema em Ajustes › Aparência */
+        "button.fin-theme-card { padding: 10px; border-radius: 18px; background-color: %6$s; border: 2px solid %7$s; box-shadow: none; color: %4$s; }\n"
+        "button.fin-theme-card:hover { border-color: alpha(%1$s, 0.5); }\n"
+        "button.fin-theme-card.selected { border-color: %1$s; }\n"
+        ".fin-segbar { background-color: %8$s; border-radius: 12px; padding: 3px; }\n"
+        ".fin-segbar > button { border-radius: 9px; padding: 6px 12px; background: none; border: none; box-shadow: none; min-height: 0; color: %4$s; font-weight: 600; }\n"
+        ".fin-segbar > button:checked { background-color: %6$s; font-weight: 800; box-shadow: 0 1px 2px rgba(0,0,0,0.12); }\n"
+        /* densidade (Ajustes › Aparência): espaçamento dos cartões e das linhas */
+        ".fin-compact .fin-card { padding: 12px 14px; border-radius: 18px; }\n"
+        ".fin-compact .fin-card.fin-hero { padding: 16px; border-radius: 22px; }\n"
+        ".fin-compact .fin-stat { padding: 10px 12px; border-radius: 16px; }\n"
+        ".fin-compact .fin-row { padding: 5px 10px; border-radius: 14px; }\n"
+        ".fin-compact button.fin-line { padding: 4px 6px; }\n"
+        ".fin-comfy .fin-card { padding: 24px; }\n"
+        ".fin-comfy .fin-card.fin-hero { padding: 28px; }\n"
+        ".fin-comfy .fin-row { padding: 14px 16px; }\n"
+        ".fin-comfy button.fin-line { padding: 12px 8px; }\n",
+        accent, accent2, muted, text, stat, sol, border, track);
+    return g_string_free(g, FALSE);
+}
+
 void theme_apply(ThemeId t) {
     AdwStyleManager *sm = adw_style_manager_get_default();
     if (t == THEME_AUTO) adw_style_manager_set_color_scheme(sm, ADW_COLOR_SCHEME_DEFAULT);
@@ -287,15 +352,17 @@ void theme_apply(ThemeId t) {
     g_autofree char *base = build_css(current);
     g_autofree char *vars = adw_get_major_version() > 1 || adw_get_minor_version() >= 6 ? build_vars(current) : g_strdup("");
     g_autofree char *widgets = build_widgets(current);
-    g_autofree char *sheet = g_strconcat(base, vars, widgets, NULL);
+    g_autofree char *extra = build_extra(current);
+    g_autofree char *sheet = g_strconcat(base, vars, widgets, extra, NULL);
     gtk_css_provider_load_from_string(provider, sheet);
     if (g_getenv("FINAN_PLUS_DEBUG")) g_printerr("[Finan+] tema %d aplicado (escuro=%d, libadwaita %u.%u)\n", t, current->dark, adw_get_major_version(), adw_get_minor_version());
 }
 
 void theme_swatch(ThemeId t, guint32 *a, guint32 *b) {
+    /* na ordem de ThemeId: Sistema, Claro, Gruvbox, OLED Cinza, Gruvbox OLED, Tokyo Night, Nord */
     static const guint32 S[THEME_COUNT][2] = {
-        {0xFFD9E5FF, 0xFF181A1F}, {0xFFEEF4FF, 0xFF3A5FC8}, {0xFFDBE7FF, 0xFF0B57D0},
-        {0xFF181A1F, 0xFF8AA8FF}, {0xFF1A1B26, 0xFF7AA2F7}, {0xFF2E3440, 0xFF88C0D0},
+        {0xFFD9E5FF, 0xFF181A1F}, {0xFFEEF4FF, 0xFF3A5FC8}, {0xFF282828, 0xFF83A598},
+        {0xFF181A1F, 0xFF8AA8FF}, {0xFF000000, 0xFF83A598}, {0xFF1A1B26, 0xFF7AA2F7}, {0xFF2E3440, 0xFF88C0D0},
     };
     *a = S[t][0];
     *b = S[t][1];

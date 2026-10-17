@@ -66,6 +66,11 @@ const Invoice *card_status_current(const CardStatus *st);
 Cents account_balance(const AppState *s, const Account *a);
 Cents current_balance(const AppState *s);
 Cents future_balance(const AppState *s, Day until, Day today);
+/* Saldo das contas no fim do dia [d], só com o que já foi pago ou recebido até lá (mesma regra de
+ * current_balance: compras no cartão não contam; o pagamento da fatura, sim). Gráficos de evolução. */
+Cents balance_on(const AppState *s, Day d);
+/* balance_on de cada dia entre [from] e [to] (inclusive) em [out], numa passada só */
+void balance_series(const AppState *s, Day from, Day to, Cents *out);
 
 /* ---- recorrências previstas (RECORRENCIAS.md) ----
  * Próximas ocorrências de cada recorrência ativa com data entre from e to, só em meses depois do mês de

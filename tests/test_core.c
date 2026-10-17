@@ -317,6 +317,32 @@ static void test_future_balance(void) {
     g_assert_cmpint(future_balance(s, D("2026-10-31"), D("2026-10-03")), ==, 75000);
 }
 
+static void test_balance_series(void) {
+    g_autoptr(AppState) s = with_card(100000);
+    ((Account *)s->accounts->pdata[0])->initial = 100000;
+    g_ptr_array_add(s->txs, mk("antes", KIND_INCOME, 5000, "2026-09-30", TRUE, NULL, NULL, NULL, NULL));
+    g_ptr_array_add(s->txs, mk("cartao", KIND_EXPENSE, 7000, "2026-10-02", TRUE, "c", NULL, NULL, NULL));
+    g_ptr_array_add(s->txs, mk("luz", KIND_EXPENSE, 20000, "2026-10-02", TRUE, NULL, NULL, NULL, NULL));
+    g_ptr_array_add(s->txs, mk("pendente", KIND_EXPENSE, 9999, "2026-10-03", FALSE, NULL, NULL, NULL, NULL));
+    g_ptr_array_add(s->txs, mk("salario", KIND_INCOME, 50000, "2026-10-04", TRUE, NULL, NULL, NULL, NULL));
+    Cents v[4];
+    balance_series(s, D("2026-10-01"), D("2026-10-04"), v);
+    g_assert_cmpint(v[0], ==, 105000); /* o que veio antes do intervalo entra no ponto de partida */
+    g_assert_cmpint(v[1], ==, 85000);  /* compra no cartão não sai da conta */
+    g_assert_cmpint(v[2], ==, 85000);  /* pendente não conta */
+    g_assert_cmpint(v[3], ==, 135000);
+    g_assert_cmpint(balance_on(s, D("2026-12-31")), ==, current_balance(s));
+}
+
+static void test_theme_ids(void) {
+    /* mesmos nomes do app Android 1.6 no backup; o antigo Material You vira Claro */
+    g_assert_cmpint(theme_parse("gruvbox"), ==, THEME_GRUVBOX);
+    g_assert_cmpint(theme_parse("gruvboxOled"), ==, THEME_GRUVBOX_OLED);
+    g_assert_cmpint(theme_parse("materialBlue"), ==, THEME_LIGHT);
+    g_assert_cmpstr(theme_json(THEME_GRUVBOX_OLED), ==, "gruvboxOled");
+    for (int t = 0; t < THEME_COUNT; t++) g_assert_cmpint(theme_parse(theme_json((ThemeId)t)), ==, t);
+}
+
 static void test_recurring_future_start(void) {
     g_autoptr(AppState) s = app_state_new();
     g_ptr_array_add(s->recurring, recurring_new("r", KIND_EXPENSE, "Aluguel", 1000, "Moradia", "main", "", 10, TRUE,
@@ -1202,6 +1228,8 @@ int main(int argc, char **argv) {
     g_test_add_func("/finance/balance-card-payment", test_balance_card_and_payment);
     g_test_add_func("/finance/invoice-close-due", test_invoice_close_due);
     g_test_add_func("/finance/future-balance", test_future_balance);
+    g_test_add_func("/finance/balance-series", test_balance_series);
+    g_test_add_func("/model/theme-ids", test_theme_ids);
     g_test_add_func("/finance/recurring-future-start", test_recurring_future_start);
     g_test_add_func("/finance/recurring-catch-up", test_recurring_catch_up);
     g_test_add_func("/finance/recurring-never-before-start", test_recurring_never_before_start);

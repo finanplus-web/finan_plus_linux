@@ -51,6 +51,8 @@ void editor_account(const char *id);
 void editor_card(const char *id);
 /* Ler fatura ou boleto (FATURAS.md); [card_id] = já aberto na fatura deste cartão (ou NULL) */
 void bill_import_open(const char *card_id);
+/* o mesmo, já lendo o PDF [file] (arrastado para a área "Ler fatura ou boleto" de Lançamentos) */
+void bill_import_open_file(GFile *file);
 gboolean bill_card_has_password(const char *card_id);
 void bill_forget_password(const char *card_id);
 void editor_recurring(const char *id);

@@ -17,8 +17,8 @@ gboolean kind_parse(const char *s, Kind *out) {
     return FALSE;
 }
 
-static const char *const THEME_JSON[THEME_COUNT] = {"auto", "light", "materialBlue", "oledGray", "tokyo", "nord"};
-static const char *const THEME_LABEL[THEME_COUNT] = {"Sistema", "Claro", "Material You", "OLED Cinza", "Tokyo Night", "Nord"};
+static const char *const THEME_JSON[THEME_COUNT] = {"auto", "light", "gruvbox", "oledGray", "gruvboxOled", "tokyo", "nord"};
+static const char *const THEME_LABEL[THEME_COUNT] = {"Sistema", "Claro", "Gruvbox", "OLED Cinza", "Gruvbox OLED", "Tokyo Night", "Nord"};
 
 const char *theme_json(ThemeId t) { return THEME_JSON[t]; }
 const char *theme_label(ThemeId t) { return THEME_LABEL[t]; }
@@ -26,6 +26,9 @@ const char *theme_label(ThemeId t) { return THEME_LABEL[t]; }
 ThemeId theme_parse(const char *s) {
     if (!s) return THEME_AUTO;
     if (strcmp(s, "dark") == 0) return THEME_OLED; /* nome antigo do PWA */
+    /* o Material You saiu (como no Android 1.6): vira Claro, o tema mais parecido, e não Sistema,
+     * que poderia deixar a janela escura de repente */
+    if (strcmp(s, "materialBlue") == 0) return THEME_LIGHT;
     for (int i = 0; i < THEME_COUNT; i++) if (strcmp(s, THEME_JSON[i]) == 0) return (ThemeId)i;
     return THEME_AUTO;
 }

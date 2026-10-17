@@ -5,8 +5,11 @@
  * Resumo com comparação justa (mês atual contra os mesmos dias do mês anterior), atalho para o
  * simulador "E se…?", despesas por categoria (rosca e barras, com limites) e evolução dos últimos 6 meses.
  * Sem nada realizado no período, mostra o que está pendente e leva ao calendário.
+ * Em janelas largas (1.4.0): quatro indicadores no alto (receitas, despesas, resultado e gasto médio
+ * por dia), categorias e fluxo do dinheiro lado a lado e, embaixo, a evolução e o saldo acumulado.
  */
 #include "pages.h"
+#include "charts.h"
 #include "pdf.h"
 #include "theme.h"
 #include "widgets.h"
@@ -97,7 +100,23 @@ static GtkWidget *categories_card(void) {
     w_add(top, legend);
     gtk_accessible_update_property(GTK_ACCESSIBLE(da), GTK_ACCESSIBLE_PROPERTY_LABEL, desc->str, -1);
     g_string_free(desc, TRUE);
-    w_add(c, top);
+    /* janelas largas: rosca e legenda à esquerda, barras à direita */
+    gboolean side = APP->layout >= LAYOUT_WIDE;
+    GtkWidget *bars = w_vbox(2);
+    if (side) {
+        gtk_widget_set_hexpand(legend, FALSE);
+        gtk_widget_set_size_request(legend, 220, -1);
+        GtkWidget *split = w_hbox(32);
+        gtk_widget_set_hexpand(top, FALSE);
+        gtk_widget_set_valign(top, GTK_ALIGN_START);
+        w_add(split, top);
+        gtk_widget_set_hexpand(bars, TRUE);
+        w_add(split, bars);
+        w_add(c, split);
+    } else {
+        w_add(c, top);
+        w_add(c, bars);
+    }
 
     /* barras com todas as categorias e os limites */
     for (guint i = 0; i < cats->len; i++) {
@@ -114,13 +133,13 @@ static GtkWidget *categories_card(void) {
         gtk_widget_set_size_request(vl, 110, -1);
         gtk_label_set_xalign(GTK_LABEL(vl), 1);
         w_add(row, vl);
-        w_add(c, row);
+        w_add(bars, row);
         if (has_lim) {
             g_autofree char *lm = app_money(lim);
             g_autofree char *t = g_strdup_printf("%s limite mensal de %s", ct->value > lim ? "Acima do" : "Dentro do", lm);
             GtkWidget *ll = w_label(t, ct->value > lim ? "fin-red caption" : "fin-muted caption");
             gtk_widget_set_margin_start(ll, 140);
-            w_add(c, ll);
+            w_add(bars, ll);
         }
     }
     return c;
@@ -128,98 +147,68 @@ static GtkWidget *categories_card(void) {
 
 /* ---------------------------------------------------------------- últimos 6 meses */
 
-typedef struct { Ym ym[6]; Flow f[6]; } SixMonths;
-
-static void draw_bars(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer p) {
-    (void)a;
-    SixMonths *m = p;
-    const FinPalette *pal = theme_palette();
-    Cents max = 0;
-    for (int i = 0; i < 6; i++) max = MAX(max, MAX(m->f[i].income, m->f[i].expense));
-    Cents step = report_nice_step(max, 4);
-    Cents top = MAX(step, ((max + step - 1) / step) * step);
-    double left = 64, bottom = h - 22, ch = bottom - 8;
-    PangoLayout *lay = gtk_widget_create_pango_layout(GTK_WIDGET(a), NULL);
-    PangoFontDescription *fd = pango_font_description_from_string("Sans 8");
-    pango_layout_set_font_description(lay, fd);
-    /* linhas de grade e eixo */
-    for (Cents v = 0; v <= top; v += step) {
-        double y = bottom - ch * v / top;
-        theme_cairo(cr, (pal->muted & 0x00FFFFFF) | 0x33000000);
-        cairo_set_line_width(cr, 1);
-        cairo_move_to(cr, left, y + 0.5);
-        cairo_line_to(cr, w - 4, y + 0.5);
-        cairo_stroke(cr);
-        g_autofree char *t = app_hidden() ? g_strdup("") : report_compact(v);
-        pango_layout_set_text(lay, t, -1);
-        int tw, th;
-        pango_layout_get_pixel_size(lay, &tw, &th);
-        theme_cairo(cr, pal->muted);
-        cairo_move_to(cr, left - 8 - tw, y - th / 2.0);
-        pango_cairo_show_layout(cr, lay);
-    }
-    double slot = (w - 4 - left) / 6;
-    double bw = MIN(26, slot * 0.3);
-    for (int i = 0; i < 6; i++) {
-        double x = left + i * slot + slot / 2;
-        double hi = app_hidden() ? 0 : ch * m->f[i].income / top, he = app_hidden() ? 0 : ch * m->f[i].expense / top;
-        /* mês sem valor não ganha barra; valor muito pequeno ganha um traço mínimo de 2 px para aparecer */
-        if (m->f[i].income > 0) {
-            theme_cairo(cr, pal->green);
-            cairo_rectangle(cr, x - bw - 2, bottom - MAX(hi, 2), bw, MAX(hi, 2));
-            cairo_fill(cr);
-        }
-        if (m->f[i].expense > 0) {
-            theme_cairo(cr, pal->red);
-            cairo_rectangle(cr, x + 2, bottom - MAX(he, 2), bw, MAX(he, 2));
-            cairo_fill(cr);
-        }
-        g_autofree char *lab = g_strdup_printf("%s/%02d", BR_MONTHS_SHORT[ym_month(m->ym[i]) - 1], ym_year(m->ym[i]) % 100);
-        pango_layout_set_text(lay, lab, -1);
-        int tw, th;
-        pango_layout_get_pixel_size(lay, &tw, &th);
-        theme_cairo(cr, pal->muted);
-        cairo_move_to(cr, x - tw / 2.0, bottom + 5);
-        pango_cairo_show_layout(cr, lay);
-    }
-    pango_font_description_free(fd);
-    g_object_unref(lay);
-}
-
 static GtkWidget *months_card(void) {
     GtkWidget *c = w_card(NULL);
     gtk_widget_set_valign(c, GTK_ALIGN_START);
     w_add(c, w_section_head("Evolução", "Últimos 6 meses"));
-    SixMonths *m = g_new0(SixMonths, 1);
+    Ym yms[6];
+    Flow fl[6];
     Ym cur = day_ym(APP->today);
     GString *desc = g_string_new("Gráfico de receitas e despesas. ");
+    gboolean empty = TRUE;
     for (int i = 0; i < 6; i++) {
-        m->ym[i] = cur - 5 + i;
-        m->f[i] = month_flow(APP->state, m->ym[i]);
-        g_autofree char *my = br_month_year(m->ym[i]);
+        yms[i] = cur - 5 + i;
+        fl[i] = month_flow(APP->state, yms[i]);
+        if (fl[i].income || fl[i].expense) empty = FALSE;
+        g_autofree char *my = br_month_year(yms[i]);
         if (app_hidden()) g_string_append_printf(desc, "%s; ", my);
         else {
-            g_autofree char *a = money_fmt(m->f[i].income), *b = money_fmt(m->f[i].expense);
+            g_autofree char *a = money_fmt(fl[i].income), *b = money_fmt(fl[i].expense);
             g_string_append_printf(desc, "%s: receitas %s, despesas %s; ", my, a, b);
         }
     }
-    gboolean empty = TRUE;
-    for (int i = 0; i < 6; i++) if (m->f[i].income || m->f[i].expense) empty = FALSE;
     if (empty) {
         /* sem nenhum mês com valores: texto no lugar do gráfico vazio */
-        g_free(m);
         g_string_free(desc, TRUE);
         w_add(c, w_label_wrap("Aparece quando houver pelo menos um mês com valores realizados.", "fin-muted"));
         return c;
     }
-    GtkWidget *da = gtk_drawing_area_new();
-    gtk_widget_set_size_request(da, -1, 220);
-    gtk_widget_set_hexpand(da, TRUE);
-    gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(da), draw_bars, m, g_free);
-    gtk_accessible_update_property(GTK_ACCESSIBLE(da), GTK_ACCESSIBLE_PROPERTY_LABEL, desc->str, -1);
+    w_add(c, chart_month_bars_new(yms, fl, 6, 220, desc->str));
     g_string_free(desc, TRUE);
-    w_add(c, da);
     w_add(c, w_label("Verde: receitas · Vermelho: despesas", "fin-muted caption"));
+    return c;
+}
+
+/* saldo das contas no fim de cada um dos últimos 6 meses (o mês atual, até hoje) */
+static GtkWidget *wealth_card(void) {
+    GtkWidget *c = w_card(NULL);
+    gtk_widget_set_valign(c, GTK_ALIGN_START);
+    w_add(c, w_section_head("Saldo", "Saldo acumulado · 6 meses"));
+    Cents v[6];
+    char lab[6][12];
+    const char *labels[6];
+    Ym cur = day_ym(APP->today);
+    GString *desc = g_string_new("Saldo das contas no fim de cada mês. ");
+    for (int i = 0; i < 6; i++) {
+        Ym m = cur - 5 + i;
+        v[i] = balance_on(APP->state, i == 5 ? APP->today : ym_last(m));
+        g_snprintf(lab[i], sizeof lab[i], "%s/%02d", BR_MONTHS_SHORT[ym_month(m) - 1], ym_year(m) % 100);
+        labels[i] = lab[i];
+        if (!app_hidden()) {
+            g_autofree char *mv = money_fmt(v[i]);
+            g_string_append_printf(desc, "%s: %s; ", lab[i], mv);
+        }
+    }
+    gboolean flat = TRUE;
+    for (int i = 0; i < 6; i++) if (v[i] != 0) flat = FALSE;
+    if (flat) {
+        g_string_free(desc, TRUE);
+        w_add(c, w_label_wrap("Aparece quando houver saldo nas contas ou lançamentos pagos.", "fin-muted"));
+        return c;
+    }
+    w_add(c, chart_line_new(v, 6, 5, labels, 220, desc->str));
+    g_string_free(desc, TRUE);
+    w_add(c, w_label("Só o que já foi pago ou recebido. O último ponto é o saldo de hoje.", "fin-muted caption"));
     return c;
 }
 
@@ -300,17 +289,6 @@ static GtkWidget *summary(void) {
 }
 
 static void open_sim(gpointer u) { (void)u; simulator_open(); }
-
-/* resultado do período ("sobraram R$ X") — só quando houve algo realizado */
-static GtkWidget *result_card(Flow fl) {
-    GtkWidget *c = w_card("fin-tight");
-    Cents res = flow_balance(fl);
-    w_add(c, w_label("Resultado do período", "fin-muted caption"));
-    w_add(c, w_money(res, res < 0 ? "fin-money-big fin-red" : "fin-money-big fin-accent"));
-    g_autofree char *t = app_hidden() ? g_strdup("Os relatórios consideram somente valores já pagos ou recebidos.") : result_text(fl);
-    w_add(c, w_label_wrap(t, "fin-muted caption"));
-    return c;
-}
 
 /* ---------------------------------------------------------------- fluxo do dinheiro */
 
@@ -492,6 +470,51 @@ static GtkWidget *what_if(void) {
 
 static void export_pdf(gpointer u) { (void)u; report_pdf_dialog(APP->filters.from, APP->filters.to); }
 
+/* gasto médio por dia no período, até hoje (FALSE se o período ainda não começou) */
+static gboolean daily_average(Flow fl, Cents *avg, int *days) {
+    const Filters *f = &APP->filters;
+    Day from = f->from, to = f->to == DAY_NONE || f->to > APP->today ? APP->today : f->to;
+    if (from == DAY_NONE || from > to) return FALSE;
+    *days = (int)(to - from) + 1;
+    *avg = fl.expense / *days;
+    return TRUE;
+}
+
+/* indicadores do alto: receitas e despesas (com a comparação), resultado e gasto médio por dia */
+static GtkWidget *kpis(Flow fl, int cols) {
+    const Filters *f = &APP->filters;
+    Compare cmp;
+    gboolean has_cmp = period_compare(f->from, f->to, APP->today, &cmp);
+    Flow prev = {0, 0};
+    if (has_cmp) {
+        g_autoptr(GPtrArray) pt = in_range(cmp.from, cmp.to);
+        prev = flow_of(pt);
+    }
+    g_autofree char *ci = app_hidden() ? g_strdup("Variação oculta") : has_cmp ? period_compare_text(fl.income, prev.income, &cmp) : NULL;
+    g_autofree char *ce = app_hidden() ? g_strdup("Variação oculta") : has_cmp ? period_compare_text(fl.expense, prev.expense, &cmp) : NULL;
+    GtkWidget *g = gtk_grid_new();
+    gtk_grid_set_column_spacing(GTK_GRID(g), 18);
+    gtk_grid_set_row_spacing(GTK_GRID(g), 18);
+    gtk_grid_set_column_homogeneous(GTK_GRID(g), TRUE);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(g), GTK_ACCESSIBLE_PROPERTY_LABEL, "Resumo do período", -1);
+    GtkWidget *items[4];
+    items[0] = sum_box("arrow-upward", "Receitas", fl.income, "fin-money-big fin-green", ci);
+    items[1] = sum_box("arrow-downward", "Despesas", fl.expense, "fin-money-big fin-red", ce);
+    Cents res = flow_balance(fl);
+    g_autofree char *rt = app_hidden() ? NULL : result_text(fl);
+    items[2] = sum_box("account-balance-wallet", "Resultado do período", res, res < 0 ? "fin-money-big fin-red" : "fin-money-big fin-accent", rt);
+    Cents avg = 0;
+    int days = 0;
+    gboolean has_avg = daily_average(fl, &avg, &days);
+    g_autofree char *dt = has_avg ? g_strdup_printf(days == 1 ? "%d dia até agora" : "%d dias até agora", days) : g_strdup("O período ainda não começou");
+    items[3] = sum_box("calendar-month", "Gasto médio por dia", avg, "fin-money-big", dt);
+    for (int i = 0; i < 4; i++) {
+        gtk_widget_set_valign(items[i], GTK_ALIGN_FILL);
+        gtk_grid_attach(GTK_GRID(g), items[i], i % cols, i / cols, 1, 1);
+    }
+    return g;
+}
+
 void page_reports_refresh(void) {
     if (!body || !APP->state) return;
     w_clear(body);
@@ -516,31 +539,34 @@ void page_reports_refresh(void) {
     g_autoptr(GPtrArray) rt = in_range(APP->filters.from, APP->filters.to);
     Flow fl = flow_of(rt);
     gboolean any = fl.income > 0 || fl.expense > 0;
-    GtkWidget *sum = summary(), *res = any ? result_card(fl) : NULL, *flw = any ? flow_card(fl) : NULL;
-    GtkWidget *sim = what_if(), *cat = categories_card(), *mon = months_card();
-    if (APP->layout == LAYOUT_NARROW) {
-        w_add(body, sum);
-        if (res) w_add(body, res);
+    Layout l = APP->layout;
+    GtkWidget *top = any ? kpis(fl, l == LAYOUT_NARROW ? 1 : l == LAYOUT_MEDIUM ? 2 : 4) : summary();
+    GtkWidget *flw = any ? flow_card(fl) : NULL;
+    GtkWidget *sim = what_if(), *cat = categories_card(), *mon = months_card(), *wl = wealth_card();
+    w_add(body, top);
+    if (l == LAYOUT_NARROW) {
         w_add(body, sim);
         if (flw) w_add(body, flw);
         w_add(body, cat);
         w_add(body, mon);
+        w_add(body, wl);
         return;
     }
+    /* à esquerda (mais larga): categorias e a evolução; à direita: fluxo do dinheiro, simulador e saldo acumulado */
     GtkWidget *g = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(g), 18);
     gtk_grid_set_column_homogeneous(GTK_GRID(g), TRUE);
-    GtkWidget *left = w_vbox(18), *right = w_vbox(18);
-    gtk_widget_set_valign(left, GTK_ALIGN_START);
-    gtk_widget_set_valign(right, GTK_ALIGN_START);
-    w_add(left, sum);
-    if (res) w_add(left, res);
-    w_add(left, sim);
-    if (flw) w_add(left, flw);
-    w_add(right, cat);
-    w_add(right, mon);
-    gtk_grid_attach(GTK_GRID(g), left, 0, 0, 1, 1);
-    gtk_grid_attach(GTK_GRID(g), right, 1, 0, 1, 1);
+    int cols = l == LAYOUT_XWIDE ? 3 : 2;
+    GtkWidget *main_col = w_vbox(18), *side = w_vbox(18);
+    gtk_widget_set_valign(main_col, GTK_ALIGN_START);
+    gtk_widget_set_valign(side, GTK_ALIGN_START);
+    w_add(main_col, cat);
+    w_add(main_col, mon);
+    if (flw) w_add(side, flw);
+    w_add(side, sim);
+    w_add(side, wl);
+    gtk_grid_attach(GTK_GRID(g), main_col, 0, 0, cols - 1, 1);
+    gtk_grid_attach(GTK_GRID(g), side, cols - 1, 0, 1, 1);
     w_add(body, g);
 }
 
@@ -548,8 +574,8 @@ GtkWidget *page_reports_new(void) {
     GtkWidget *sw = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sw), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     GtkWidget *clamp = adw_clamp_new();
-    adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 1500);
-    adw_clamp_set_tightening_threshold(ADW_CLAMP(clamp), 1200);
+    adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 2400);
+    adw_clamp_set_tightening_threshold(ADW_CLAMP(clamp), 2000);
     body = w_vbox(18);
     gtk_widget_set_margin_start(body, 24);
     gtk_widget_set_margin_end(body, 24);

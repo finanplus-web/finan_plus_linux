@@ -5,6 +5,8 @@
  * Lista: ‹ mês › com "Período e filtros", busca, filtros de um toque (Todos, Receitas, Despesas,
  * Pendentes) e o resumo do período à esquerda; os lançamentos agrupados por dia, com o saldo do dia,
  * à direita. Em janelas estreitas o painel fica acima da lista e pode ser recolhido.
+ * Em janelas largas (1.4.0): período, busca e filtros numa barra no alto; a lista no meio; à direita o
+ * resumo do período, os pendentes (com "Pagar"/"Receber") e a área para soltar uma fatura em PDF.
  * Calendário: page_calendar.c.
  */
 #include "pages.h"
@@ -17,7 +19,10 @@
 
 static struct {
     GtkWidget *root, *stack, *view_list, *view_cal;
-    GtkWidget *body, *left, *panel_rev, *panel_toggle, *panel_sw, *list_sw;
+    GtkWidget *body, *left, *panel, *panel_rev, *panel_toggle, *panel_sw, *list_sw;
+    /* janelas largas: barra de filtros no alto e coluna à direita */
+    GtkWidget *listpage, *filterbar, *side, *side_sw, *pend, *pbar, *chips, *csv;
+    gboolean wide_mode;
     GtkWidget *period_label, *tune, *search;
     GtkWidget *chip_all, *chip_inc, *chip_exp, *chip_pend;
     GtkWidget *totals; /* recalculado */
@@ -90,7 +95,7 @@ static void toggle_paid(gpointer id) {
 /* Linha de lançamento. [with_date]: FALSE quando o dia já aparece no título do grupo (lista por dia e calendário). */
 GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
     const AppState *s = APP->state;
-    gboolean wide = APP->layout == LAYOUT_WIDE;
+    gboolean wide = APP->layout >= LAYOUT_WIDE;
     gboolean late;
     const char *status = tx_status(t, &late);
     g_autofree char *where = NULL;
@@ -387,6 +392,12 @@ static void build_totals(void) {
     w_add(row, sum_col("Saldo", bal, bal < 0 ? "fin-money-mid fin-red" : "fin-money-mid", "previsto", forecast,
                        forecast < 0 ? "caption fin-red" : "caption fin-accent", has_pend));
     w_add(card, row);
+    if (f.income > 0) {
+        /* quanto das receitas as despesas levaram */
+        GtkWidget *bar = w_level((double)f.expense / f.income, f.expense > f.income ? "over" : "red");
+        gtk_widget_set_margin_top(bar, 8);
+        w_add(card, bar);
+    }
     /* "Depois das despesas, sobraram R$ X." (some com "Ocultar valores") */
     if ((f.income > 0 || f.expense > 0) && !app_hidden()) {
         g_autofree char *note = result_text(f);
@@ -395,6 +406,119 @@ static void build_totals(void) {
         w_add(card, nl);
     }
     w_add(M.totals, card);
+}
+
+/* ---------------------------------------------------------------- pendentes do período (janelas largas) */
+
+static void toggle_paid(gpointer id);
+
+static void build_pending(void) {
+    if (!M.pend) return;
+    w_clear(M.pend);
+    g_autoptr(GPtrArray) p = g_ptr_array_new();
+    for (guint i = 0; i < M.items->len; i++) {
+        Tx *t = M.items->pdata[i];
+        if (!t->paid && !tx_is_projected(t) && ops_can_toggle_paid(t)) g_ptr_array_add(p, t);
+    }
+    GtkWidget *card = w_card("fin-flat");
+    g_autofree char *title = p->len ? g_strdup_printf("Pendentes (%u)", p->len) : g_strdup("Pendentes");
+    w_add(card, w_card_head(title, NULL));
+    if (!p->len) {
+        GtkWidget *row = w_hbox(12);
+        w_add(row, w_icon_tile("check", "green", FALSE));
+        w_add(row, w_label_wrap("Nada pendente neste período.", "fin-muted"));
+        w_add(card, row);
+        w_add(M.pend, card);
+        return;
+    }
+    /* os mais antigos primeiro: os atrasados aparecem no alto */
+    for (guint i = 0; i < MIN(p->len, 5u); i++) {
+        Tx *t = p->pdata[p->len - 1 - i];
+        if (i) w_add(card, w_sep());
+        GtkWidget *row = w_hbox(10);
+        gtk_widget_set_margin_top(row, 4);
+        gtk_widget_set_margin_bottom(row, 4);
+        GtkWidget *tx = w_vbox(1);
+        gtk_widget_set_hexpand(tx, TRUE);
+        w_add(tx, w_label(t->desc, "heading"));
+        char d[11];
+        gboolean late = t->date < APP->today;
+        g_autofree char *when = t->date == APP->today ? g_strdup("Vence hoje") : g_strdup_printf("%s %s", late ? "Venceu em" : "Vence em", day_br(t->date, d));
+        w_add(tx, w_label(when, late || t->date == APP->today ? "fin-late caption" : "fin-muted caption"));
+        w_add(row, tx);
+        GtkWidget *mv = w_money(t->value, t->kind == KIND_INCOME ? "fin-green" : NULL);
+        gtk_widget_set_valign(mv, GTK_ALIGN_CENTER);
+        w_add(row, mv);
+        GtkWidget *b = w_pill(t->kind == KIND_INCOME ? "Receber" : "Pagar", toggle_paid, g_strdup(t->id), g_free);
+        gtk_widget_set_valign(b, GTK_ALIGN_CENTER);
+        g_autofree char *tip = g_strdup_printf("Marcar “%s” como %s", t->desc, t->kind == KIND_INCOME ? "recebido" : "pago");
+        gtk_widget_set_tooltip_text(b, tip);
+        w_add(row, b);
+        w_add(card, row);
+    }
+    if (p->len > 5) {
+        g_autofree char *more = g_strdup_printf("E mais %u na lista (filtro Pendentes).", p->len - 5);
+        w_add(card, w_label(more, "fin-muted caption"));
+    }
+    w_add(M.pend, card);
+}
+
+/* ---------------------------------------------------------------- soltar fatura em PDF */
+
+static void bill_pick(gpointer u) { (void)u; bill_import_open(NULL); }
+
+static gboolean on_drop(GtkDropTarget *t, const GValue *v, double x, double y, gpointer zone) {
+    (void)t; (void)x; (void)y;
+    gtk_widget_remove_css_class(zone, "over");
+    if (!G_VALUE_HOLDS(v, G_TYPE_FILE)) return FALSE;
+    GFile *f = g_value_get_object(v);
+    g_autofree char *name = g_file_get_basename(f);
+    g_autofree char *low = name ? g_ascii_strdown(name, -1) : NULL;
+    if (!low || !g_str_has_suffix(low, ".pdf")) {
+        dlg_notice("Não é um PDF", "Solte aqui a fatura ou o boleto em PDF.");
+        return FALSE;
+    }
+    bill_import_open_file(f);
+    return TRUE;
+}
+
+static GdkDragAction on_drop_enter(GtkDropTarget *t, double x, double y, gpointer zone) {
+    (void)t; (void)x; (void)y;
+    gtk_widget_add_css_class(zone, "over");
+    return GDK_ACTION_COPY;
+}
+
+static void on_drop_leave(GtkDropTarget *t, gpointer zone) { (void)t; gtk_widget_remove_css_class(zone, "over"); }
+
+static GtkWidget *bill_card(void) {
+    GtkWidget *card = w_card("fin-flat");
+    GtkWidget *head = w_hbox(12);
+    w_add(head, w_icon_tile("receipt-long", "purple", FALSE));
+    GtkWidget *t = w_vbox(1);
+    w_add(t, w_label("Ler fatura ou boleto", "heading"));
+    w_add(t, w_label_wrap("Valor e vencimento saem do PDF ou do código. Você confere antes de salvar.", "fin-muted caption"));
+    gtk_widget_set_hexpand(t, TRUE);
+    w_add(head, t);
+    w_add(card, head);
+    GtkWidget *zone = w_vbox(6);
+    gtk_widget_add_css_class(zone, "fin-drop");
+    gtk_widget_set_margin_top(zone, 4);
+    GtkWidget *ic = w_icon("upload", 24);
+    gtk_widget_add_css_class(ic, "fin-accent");
+    w_add(zone, ic);
+    GtkWidget *zl = w_label("Solte o PDF aqui", "heading fin-accent");
+    gtk_label_set_xalign(GTK_LABEL(zl), 0.5);
+    w_add(zone, zl);
+    GtkWidget *b = w_pill("Escolher PDF ou colar o código", bill_pick, NULL, NULL);
+    gtk_widget_set_halign(b, GTK_ALIGN_CENTER);
+    w_add(zone, b);
+    GtkDropTarget *dt = gtk_drop_target_new(G_TYPE_FILE, GDK_ACTION_COPY);
+    g_signal_connect(dt, "drop", G_CALLBACK(on_drop), zone);
+    g_signal_connect(dt, "enter", G_CALLBACK(on_drop_enter), zone);
+    g_signal_connect(dt, "leave", G_CALLBACK(on_drop_leave), zone);
+    gtk_widget_add_controller(zone, GTK_EVENT_CONTROLLER(dt));
+    w_add(card, zone);
+    return card;
 }
 
 /* ---------------------------------------------------------------- lista agrupada por dia */
@@ -477,6 +601,7 @@ static void rebuild_list(gboolean keep_scroll) {
     gtk_widget_set_visible(M.list, M.items->len > 0);
     gtk_widget_set_visible(M.empty, M.items->len == 0);
     build_totals();
+    build_pending();
     if (keep_scroll) gtk_adjustment_set_value(adj, pos);
 }
 
@@ -514,12 +639,50 @@ void page_moves_focus_search(void) {
     gtk_widget_grab_focus(M.search);
 }
 
+/* tira [w] de onde estiver e põe no fim de [box] */
+static void move_to(GtkWidget *w, GtkWidget *box) {
+    GtkWidget *parent = gtk_widget_get_parent(w);
+    g_object_ref(w);
+    if (parent) gtk_box_remove(GTK_BOX(parent), w);
+    gtk_box_append(GTK_BOX(box), w);
+    g_object_unref(w);
+}
+
+/* janelas largas: filtros na barra do alto e resumo na coluna da direita; senão, tudo no painel da esquerda */
+static void place_controls(gboolean wide) {
+    if (wide == M.wide_mode && gtk_widget_get_parent(M.pbar)) return;
+    M.wide_mode = wide;
+    if (wide) {
+        move_to(M.pbar, M.filterbar);
+        move_to(M.search, M.filterbar);
+        move_to(M.chips, M.filterbar);
+        gtk_widget_set_size_request(M.pbar, 340, -1);
+        gtk_widget_set_hexpand(M.pbar, FALSE);
+        gtk_widget_set_hexpand(M.search, TRUE);
+        move_to(M.totals, M.side);
+        gtk_box_reorder_child_after(GTK_BOX(M.side), M.totals, NULL);
+    } else {
+        move_to(M.pbar, M.panel);
+        move_to(M.search, M.panel);
+        move_to(M.chips, M.panel);
+        move_to(M.totals, M.panel);
+        gtk_widget_set_size_request(M.pbar, -1, -1);
+        gtk_widget_set_hexpand(M.search, FALSE);
+        g_object_set(M.pbar, "hexpand-set", FALSE, NULL);
+    }
+    gtk_widget_set_visible(M.filterbar, wide);
+    gtk_widget_set_visible(M.side_sw, wide);
+    gtk_widget_set_visible(M.left, !wide);
+    gtk_widget_set_visible(M.csv, wide);
+}
+
 void page_moves_refresh(void) {
     if (!M.root || !APP->state) return;
+    place_controls(APP->layout >= LAYOUT_WIDE);
     gboolean narrow = APP->layout == LAYOUT_NARROW;
     gtk_orientable_set_orientation(GTK_ORIENTABLE(M.body), narrow ? GTK_ORIENTATION_VERTICAL : GTK_ORIENTATION_HORIZONTAL);
     gtk_widget_set_visible(M.panel_toggle, narrow);
-    int pw = APP->layout == LAYOUT_WIDE ? 380 : 330;
+    int pw = APP->layout >= LAYOUT_WIDE ? 380 : 330;
     gtk_widget_set_size_request(M.left, narrow ? -1 : pw, -1);
     gtk_widget_set_hexpand(M.left, FALSE);
     gtk_widget_set_vexpand(M.panel_rev, !narrow);
@@ -578,6 +741,7 @@ static GtkWidget *view_btn(const char *icon, const char *label, int which) {
     return b;
 }
 
+static void csv_export(gpointer u) { (void)u; data_export_csv(); }
 static void empty_expense(gpointer u) { (void)u; editor_tx(KIND_EXPENSE, NULL); }
 static void empty_income(gpointer u) { (void)u; editor_tx(KIND_INCOME, NULL); }
 
@@ -592,6 +756,10 @@ GtkWidget *page_moves_new(void) {
     GtkWidget *title = w_label("Lançamentos", "title-2");
     gtk_widget_set_hexpand(title, TRUE);
     w_add(top, title);
+    M.csv = w_button("Exportar CSV", "table-view", "fin-pill", csv_export, NULL, NULL);
+    gtk_widget_set_tooltip_text(M.csv, "Exportar todos os lançamentos em CSV (Ctrl+E)");
+    gtk_widget_set_valign(M.csv, GTK_ALIGN_CENTER);
+    w_add(top, M.csv);
     GtkWidget *sw = w_hbox(4);
     gtk_widget_add_css_class(sw, "fin-segment");
     gtk_accessible_update_property(GTK_ACCESSIBLE(sw), GTK_ACCESSIBLE_PROPERTY_LABEL, "Modo de exibição", -1);
@@ -607,18 +775,29 @@ GtkWidget *page_moves_new(void) {
     gtk_stack_set_transition_type(GTK_STACK(M.stack), GTK_STACK_TRANSITION_TYPE_CROSSFADE);
     gtk_widget_set_vexpand(M.stack, TRUE);
     w_add(M.root, M.stack);
+    M.listpage = w_vbox(0);
+    M.filterbar = w_hbox(12);
+    gtk_widget_add_css_class(M.filterbar, "fin-card");
+    gtk_widget_add_css_class(M.filterbar, "fin-filterbar");
+    gtk_widget_set_margin_start(M.filterbar, 20);
+    gtk_widget_set_margin_end(M.filterbar, 24);
+    gtk_widget_set_margin_top(M.filterbar, 12);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(M.filterbar), GTK_ACCESSIBLE_PROPERTY_LABEL, "Período, busca e filtros", -1);
+    w_add(M.listpage, M.filterbar);
     M.body = w_hbox(0);
-    gtk_stack_add_named(GTK_STACK(M.stack), M.body, "list");
+    gtk_widget_set_vexpand(M.body, TRUE);
+    w_add(M.listpage, M.body);
+    gtk_stack_add_named(GTK_STACK(M.stack), M.listpage, "list");
     gtk_stack_add_named(GTK_STACK(M.stack), page_calendar_new(), "calendar");
 
     /* ---- painel ---- */
-    GtkWidget *panel = w_vbox(12);
+    GtkWidget *panel = M.panel = w_vbox(12);
     gtk_widget_set_margin_start(panel, 20);
     gtk_widget_set_margin_end(panel, 12);
     gtk_widget_set_margin_top(panel, 12);
     gtk_widget_set_margin_bottom(panel, 18);
 
-    GtkWidget *pbar = w_hbox(6);
+    GtkWidget *pbar = M.pbar = w_hbox(6);
     w_add(pbar, round_btn("chevron-left", "Mês anterior", shift, GINT_TO_POINTER(-1)));
     M.period_label = w_label("", "title-4");
     gtk_label_set_xalign(GTK_LABEL(M.period_label), 0.5f);
@@ -638,7 +817,7 @@ GtkWidget *page_moves_new(void) {
     g_signal_connect(M.search, "search-changed", G_CALLBACK(on_search), NULL);
     w_add(panel, M.search);
 
-    GtkWidget *chips = w_hbox(6);
+    GtkWidget *chips = M.chips = w_hbox(6);
     gtk_accessible_update_property(GTK_ACCESSIBLE(chips), GTK_ACCESSIBLE_PROPERTY_LABEL, "Filtros", -1);
     w_add(chips, M.chip_all = chip("Todos", 0));
     w_add(chips, M.chip_inc = chip("Receitas", 1));
@@ -673,7 +852,7 @@ GtkWidget *page_moves_new(void) {
     gtk_widget_set_hexpand(right, TRUE);
     gtk_widget_set_vexpand(right, TRUE);
     GtkWidget *lbox = w_vbox(8);
-    gtk_widget_set_margin_start(lbox, 12);
+    gtk_widget_set_margin_start(lbox, 20);
     gtk_widget_set_margin_end(lbox, 24);
     gtk_widget_set_margin_top(lbox, 12);
     gtk_widget_set_margin_bottom(lbox, 24);
@@ -710,7 +889,8 @@ GtkWidget *page_moves_new(void) {
     g_signal_connect(M.more, "clicked", G_CALLBACK(show_more), NULL);
     w_add(lbox, M.more);
     GtkWidget *clamp = adw_clamp_new();
-    adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 1200);
+    adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 1800);
+    adw_clamp_set_tightening_threshold(ADW_CLAMP(clamp), 1800);
     adw_clamp_set_child(ADW_CLAMP(clamp), lbox);
     M.list_sw = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(M.list_sw), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
@@ -718,5 +898,25 @@ GtkWidget *page_moves_new(void) {
     gtk_widget_set_vexpand(M.list_sw, TRUE);
     w_add(right, M.list_sw);
     w_add(M.body, right);
+
+    /* ---- coluna da direita (janelas largas) ---- */
+    M.side = w_vbox(16);
+    gtk_widget_set_margin_start(M.side, 6);
+    gtk_widget_set_margin_end(M.side, 24);
+    gtk_widget_set_margin_top(M.side, 12);
+    gtk_widget_set_margin_bottom(M.side, 24);
+    M.pend = w_vbox(0);
+    w_add(M.side, M.pend);
+    w_add(M.side, bill_card());
+    M.side_sw = gtk_scrolled_window_new();
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(M.side_sw), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(M.side_sw), M.side);
+    gtk_widget_set_size_request(M.side_sw, 400, -1);
+    gtk_widget_set_hexpand(M.side_sw, FALSE); /* largura fixa: o espaço que sobra fica com a lista */
+    gtk_widget_set_vexpand(M.side_sw, TRUE);
+    w_add(M.body, M.side_sw);
+    gtk_widget_set_visible(M.filterbar, FALSE);
+    gtk_widget_set_visible(M.side_sw, FALSE);
+    gtk_widget_set_visible(M.csv, FALSE);
     return M.root;
 }
