@@ -23,8 +23,9 @@ G_BEGIN_DECLS
 
 typedef enum { PAGE_HOME, PAGE_MOVES, PAGE_MONEY, PAGE_REPORTS, PAGE_ASSIST, PAGE_SETTINGS, PAGE_COUNT } PageId;
 
-/* largura útil da área de conteúdo: define quantas colunas cada tela usa */
-typedef enum { LAYOUT_NARROW, LAYOUT_MEDIUM, LAYOUT_WIDE } Layout;
+/* largura útil da área de conteúdo: define quantas colunas cada tela usa.
+ * NARROW < 720 px (uma coluna), MEDIUM < 1080, WIDE < 1400 (duas), XWIDE a partir de 1400 (três). */
+typedef enum { LAYOUT_NARROW, LAYOUT_MEDIUM, LAYOUT_WIDE, LAYOUT_XWIDE } Layout;
 
 /* visão da aba Lançamentos */
 typedef enum { MOVES_LIST, MOVES_CALENDAR } MovesView;
@@ -89,6 +90,9 @@ void app_open_moves(const char *query, Day from, Day to, int kind);
 void app_open_moves_pending(void);
 /* abre Lançamentos › Calendário no mês [ym] */
 void app_open_calendar(Ym ym);
+
+/* espaçamento escolhido em Ajustes › Aparência (classe .fin-compact ou .fin-comfy na janela) */
+void app_apply_density(void);
 
 /* ---- avisos ---- */
 void app_toast(const char *fmt, ...) G_GNUC_PRINTF(1, 2);

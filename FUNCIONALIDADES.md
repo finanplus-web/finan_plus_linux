@@ -7,7 +7,7 @@ Lista completa do que o app faz e de onde fica cada coisa, comparada com o app A
 | O quê | Como funciona |
 |---|---|
 | Barra lateral | Início, Lançamentos, Meu dinheiro, Resumo (antes Relatórios), Assistente e Ajustes. No rodapé, o saldo atual e o previsto para o fim do mês ficam sempre à vista. |
-| Colunas que se reorganizam | A largura da janela define o layout. Com **720 px ou mais**, o Início fica em duas colunas (saldo, vencimentos e contas na larga; assistente, limites e metas na estreita), Lançamentos e Relatórios em duas; **abaixo de 720 px**, uma só. |
+| Colunas que se reorganizam | A largura do conteúdo define o layout: **1.400 px ou mais**, três colunas; **720 a 1.400 px**, duas; **abaixo de 720 px**, uma só. O conteúdo usa a largura toda (até 2.400 px). Cartões de uma mesma linha ficam da mesma altura. |
 | Janela estreita | Abaixo de 720sp a barra lateral vira uma página, com botão de voltar, e os botões do topo ficam só com o ícone. A janela vai até 360 × 480. |
 | Barra superior | Botões "Despesa" e "Receita", busca, ocultar valores, bloquear (quando há PIN) e o menu (PDF, CSV, backup, restaurar, atalhos, sobre). |
 | Formulários | Editores em diálogos, no padrão GNOME: Cancelar à esquerda, Salvar à direita, Enter salva. Fechar (Esc, Cancelar ou ×) com alterações não salvas pergunta **"Descartar alterações?"**; sem alterações, fecha direto. |
@@ -35,11 +35,19 @@ Com um diálogo aberto, os atalhos globais esperam, para não abrir um editor po
 
 ## Início
 
+Em janelas com 1.400 px de conteúdo ou mais: saldo, próximos vencimentos e assistente na primeira linha; evolução do saldo, receitas × despesas e onde foi o dinheiro na segunda; últimos lançamentos, metas e limites na terceira. Cartão sem dados explica o que vai aparecer nele, em vez de sumir.
+
+- **Evolução do saldo:** saldo das contas no fim de cada dia do mês, só com o que já foi pago ou recebido (linha cheia até hoje). Depois de hoje, linha tracejada com o saldo previsto de cada dia (pendências, faturas e recorrências até ele). O ponto de hoje mostra o valor.
+- **Receitas × Despesas:** barras dos últimos 5 meses (realizado).
+- **Onde foi o dinheiro:** as 5 categorias com mais despesas pagas no mês, com link para o Resumo.
+- **Últimos lançamentos:** os 6 mais recentes até hoje (clique abre o editor).
+- **Metas** (até 3, com %) e **Limites do mês** (até 4, com a barra que muda de cor); sem nenhum, um atalho para criar.
+
 - Data do dia ("Sábado, 10 de outubro"), que muda sozinha à meia-noite e quando a janela volta a ficar ativa, e o selo "Privado".
 - Saldo atual e saldo previsto para o fim do mês. O previsto inclui pendências e as faturas que vencem até lá.
 - Receitas e despesas realizadas no mês e, embaixo delas, o que ainda falta: **"a receber"** e **"a pagar"** (contas pendentes fora do cartão e faturas em aberto que vencem no mês), para o R$ 0,00 não esconder o que vem.
 - Barra de uso das receitas e selo "% economizado", só quando já entrou alguma receita.
-- **Vencimentos (30 dias)** (só na versão Linux; no Android esse papel é do widget): contas a pagar, valores a receber e faturas. Itens em atraso aparecem em vermelho, e um clique abre o lançamento ou o pagamento da fatura. "Ver pendentes" abre a Lista com o filtro Pendentes.
+- **Próximos vencimentos** (até 5; uma linha cada, com "Hoje", "Amanhã", "Atrasado" ou a data). Antes: **Vencimentos (30 dias)** (só na versão Linux; no Android esse papel é do widget): contas a pagar, valores a receber e faturas. Itens em atraso aparecem em vermelho, e um clique abre o lançamento ou o pagamento da fatura. "Ver pendentes" abre a Lista com o filtro Pendentes.
 - **Assistente compacto:** as 2 frases mais úteis do mês (regra em [ASSISTENTE.md](ASSISTENTE.md)), a dica principal e um link só ("Abrir assistente" ou "Ver as N dicas"). O resumo completo, o "Por quê?" e as perguntas ficam na tela Assistente.
 - **Contas e cartões:** contas com o saldo de cada uma; cartões com a fatura atual, o vencimento, o disponível e "Pagar fatura". Com uma conta só e nenhum cartão, ela ocupa a linha inteira.
 - **Limites do mês** e **Metas** só aparecem quando existe algo, com "Novo"/"Nova" no título. Limites: barra que muda de cor a partir de 80% ("Atenção") e acima do limite. Metas: quanto foi guardado, quanto guardar por mês até o prazo, o mês previsto de conclusão e o aviso "após o prazo".
@@ -47,6 +55,8 @@ Com um diálogo aberto, os atalhos globais esperam, para não abrir um editor po
 - Os botões Receita, Despesa e Meta saíram do cartão de saldo: os botões do topo da janela (e Ctrl+N, Ctrl+Shift+N, Ctrl+M) fazem o mesmo.
 
 ## Lançamentos
+
+**A partir de 1.080 px de conteúdo:** período, busca e filtros numa barra no alto; a lista por dia no meio; à direita o resumo do período, os **Pendentes** do período (até 5, os mais antigos primeiro, com **Pagar**/**Receber**, que pede confirmação e oferece Desfazer) e **Ler fatura ou boleto**, onde dá para **soltar um PDF** (abre a leitura já com o arquivo) ou escolher/colar o código. Botão **Exportar CSV** no alto. Abaixo disso, o painel fica à esquerda, como antes.
 
 - Chave **Lista | Calendário** no alto. O calendário está descrito em [CALENDARIO.md](CALENDARIO.md).
 - **‹ Outubro de 2026 ›:** as setas andam um mês inteiro. O botão ao lado abre **Período e filtros**: datas livres (De/Até), Este mês, 30 dias, Tudo e a situação (Todos, Realizados, Pendentes). Ele fica destacado quando há período livre ou "Realizados". Um período livre aparece como "01/10/2026 a 15/10/2026". O período também vale para Relatórios.
@@ -79,9 +89,18 @@ Com um diálogo aberto, os atalhos globais esperam, para não abrir um editor po
 
 ## Meu dinheiro
 
+- **No alto:** saldo das contas, faturas em aberto (a atual e as fechadas não pagas de cada cartão) e o que fica livre depois delas.
+- **Contas e cartões** com o valor à direita; o cartão mostra a fatura atual, o vencimento, o disponível e a barra do limite usado. Clique abre o editor; "Pagar fatura" logo abaixo.
+- **Categorias em quadradinhos coloridos** (ícone e cor iguais aos das listas); **Gerenciar** abre adicionar, renomear e excluir.
+- Em janelas bem largas: contas, metas e limites lado a lado; categorias e simulador embaixo.
+
+
 Contas e cartões (com a fatura atual e "Pagar fatura"), limites mensais, metas com plano, atalho para o simulador e categorias (minimizadas; **Maximizar** mostra a lista e o campo de nova categoria). Saíram do Início e de Ajustes, que ficou em grupos: Personalização, Planejamento e automação, Segurança e dados e Aplicativo.
 
 ## Resumo (antes Relatórios)
+
+- **Quatro indicadores** no alto: receitas e despesas (com a comparação), resultado do período e **gasto médio por dia** (despesas pagas ÷ dias do período até hoje).
+- Em janelas largas: rosca e barras das categorias lado a lado; à direita, fluxo do dinheiro, simulador e **Saldo acumulado** (saldo das contas no fim de cada um dos últimos 6 meses; o último ponto é hoje).
 
 Além do que está abaixo: **resultado do período** e **fluxo do dinheiro** (de onde veio, por categoria de receita, e para onde foi, por categoria de despesa e a sobra).
 
@@ -108,11 +127,13 @@ Além do que está abaixo: **resultado do período** e **fluxo do dinheiro** (de
 - Perguntas rápidas em português, com a linha "Como entendi".
 - Tudo sem internet, com "Por quê?". Cada função pode ser desligada.
 
-## Ajustes (todos os cartões abrem e fecham com + / −)
+## Ajustes
+
+A partir de 720 px: lista das seções à esquerda (grupo, ícone colorido, título e resumo) e a seção escolhida aberta à direita. Em janelas estreitas, cartões que abrem e fecham com + / −.
 
 | Cartão | O que tem |
 |---|---|
-| Aparência | Temas Sistema, Claro, Material You, OLED Cinza, Tokyo Night e Nord. "Sistema" acompanha o modo claro/escuro da área de trabalho. |
+| Aparência | Temas Sistema, Claro, Gruvbox, OLED Cinza, Gruvbox OLED, Tokyo Night e Nord, com miniatura de cada um (as mesmas cores do Android 1.6). "Sistema" acompanha o modo claro/escuro da área de trabalho. O Material You saiu: backup com ele abre no Claro. **Densidade** Confortável, Padrão ou Compacta (só neste computador). |
 | Privacidade e segurança | PIN de 4 a 8 números, ocultar valores e bloqueio automático (Imediatamente, 1, 5, 15 ou 30 min sem usar, ou Só ao abrir o app), guardado só neste computador. Informa onde estão os dados e onde está a chave. |
 | Avisos de vencimento | Avisos diários a partir das 9h, opção de avisar ao entrar na sessão e "Avisar agora". |
 | Assistente | 3 interruptores, restaurar dicas dispensadas e "Ver o que o assistente aprendeu". |
@@ -148,7 +169,6 @@ Além do que está abaixo: **resultado do período** e **fluxo do dinheiro** (de
 | Tocar e segurar um dia do calendário | Clicar de novo no dia, dois cliques, botão direito ou segurar o botão do mouse. |
 | Bloquear capturas de tela | Impossível por aplicativo no Linux/Wayland. Ajustes recomenda "Ocultar valores" ao compartilhar a tela. |
 | Notificações com WorkManager às 9h | Com o app aberto: uma vez por dia a partir das 9h. Fechado: opcional, ao entrar na sessão (`finan-plus --avisos`). |
-| Material You com cores do papel de parede | No Linux não há essa API. O tema usa o azul do Material Design. |
 | Chave no Android Keystore | Chave no chaveiro do sistema (libsecret). |
 
 ## Compatibilidade

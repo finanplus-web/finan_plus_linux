@@ -49,6 +49,8 @@ Prefs *prefs_load(const char *dir) {
     p->window_width = get_int(k, "janela_largura", 1280);
     p->window_height = get_int(k, "janela_altura", 820);
     p->window_maximized = get_bool(k, "janela_maximizada", FALSE);
+    p->density = get_int(k, "densidade", DENSITY_DEFAULT);
+    if (p->density < DENSITY_DEFAULT || p->density > DENSITY_COMFY) p->density = DENSITY_DEFAULT;
     p->last_notified = g_key_file_get_string(k, GROUP, "ultimo_aviso", NULL);
     if (!p->last_notified) p->last_notified = g_strdup("");
     p->auto_lock_set = g_key_file_has_key(k, GROUP, "bloqueio_automatico", NULL);
@@ -80,6 +82,7 @@ gboolean prefs_save(Prefs *p, GError **error) {
     g_key_file_set_integer(k, GROUP, "janela_largura", p->window_width);
     g_key_file_set_integer(k, GROUP, "janela_altura", p->window_height);
     g_key_file_set_boolean(k, GROUP, "janela_maximizada", p->window_maximized);
+    g_key_file_set_integer(k, GROUP, "densidade", p->density);
     g_key_file_set_string(k, GROUP, "ultimo_aviso", p->last_notified);
     if (p->auto_lock_set) g_key_file_set_integer(k, GROUP, "bloqueio_automatico", p->auto_lock);
     g_key_file_set_integer(k, GROUP, "pin_erros", p->pin_fails);

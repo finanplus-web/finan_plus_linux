@@ -172,7 +172,7 @@ static void refresh_sidebar(void) {
 /* ------------------------------------------------------------------ layout responsivo */
 
 static void on_width(int width) {
-    Layout l = width < 720 ? LAYOUT_NARROW : width < 1080 ? LAYOUT_MEDIUM : LAYOUT_WIDE;
+    Layout l = width < 720 ? LAYOUT_NARROW : width < 1080 ? LAYOUT_MEDIUM : width < 1400 ? LAYOUT_WIDE : LAYOUT_XWIDE;
     if (l == APP->layout) return;
     APP->layout = l;
     /* em janelas estreitas os botões do topo ficam só com o ícone */
@@ -180,6 +180,15 @@ static void on_width(int width) {
     adw_button_content_set_label(ADW_BUTTON_CONTENT(gtk_button_get_child(GTK_BUTTON(W.exp_btn))), compact ? "" : "Despesa");
     adw_button_content_set_label(ADW_BUTTON_CONTENT(gtk_button_get_child(GTK_BUTTON(W.inc_btn))), compact ? "" : "Receita");
     app_refresh();
+}
+
+void app_apply_density(void) {
+    if (!APP->window) return;
+    GtkWidget *w = GTK_WIDGET(APP->window);
+    gtk_widget_remove_css_class(w, "fin-compact");
+    gtk_widget_remove_css_class(w, "fin-comfy");
+    if (APP->prefs->density == DENSITY_COMPACT) gtk_widget_add_css_class(w, "fin-compact");
+    else if (APP->prefs->density == DENSITY_COMFY) gtk_widget_add_css_class(w, "fin-comfy");
 }
 
 /* ------------------------------------------------------------------ bloqueio */
@@ -588,6 +597,7 @@ void app_activate(GtkApplication *gapp) {
     g_signal_connect(adw_style_manager_get_default(), "notify::dark", G_CALLBACK(on_dark_changed), NULL);
 
     GtkWidget *win = build_window(gapp);
+    app_apply_density();
     if (problem) {
         APP->problem = TRUE;
         GtkWidget *pbox = w_vbox(0);

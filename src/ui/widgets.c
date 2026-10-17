@@ -41,6 +41,25 @@ GtkWidget *w_spacer(void) {
     return s;
 }
 
+GtkWidget *w_sep(void) {
+    GtkWidget *s = w_hbox(0);
+    gtk_widget_add_css_class(s, "fin-sep");
+    return s;
+}
+
+GtkWidget *w_card_head(const char *title, GtkWidget *action) {
+    GtkWidget *head = w_hbox(8);
+    GtkWidget *h = w_title(title);
+    gtk_widget_set_hexpand(h, TRUE);
+    gtk_widget_set_valign(h, GTK_ALIGN_CENTER);
+    w_add(head, h);
+    if (action) {
+        gtk_widget_set_valign(action, GTK_ALIGN_CENTER);
+        w_add(head, action);
+    }
+    return head;
+}
+
 /* ------------------------------------------------------------------ texto */
 
 GtkWidget *w_label(const char *text, const char *classes) {
@@ -131,6 +150,23 @@ GtkWidget *w_icon(const char *name, int px) {
     return i;
 }
 
+GtkWidget *w_icon_tile(const char *icon, const char *color, gboolean big) {
+    GtkWidget *box = w_hbox(0);
+    gtk_widget_add_css_class(box, "fin-ico");
+    if (big) gtk_widget_add_css_class(box, "big");
+    w_classes(box, color ? color : "blue");
+    gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
+    gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
+    int sz = big ? 44 : 38;
+    gtk_widget_set_size_request(box, sz, sz);
+    GtkWidget *i = w_icon(icon, big ? 22 : 20);
+    gtk_widget_set_hexpand(i, TRUE);
+    gtk_widget_set_halign(i, GTK_ALIGN_CENTER);
+    w_add(box, i);
+    gtk_widget_set_hexpand(box, FALSE); /* o ícone não estica o quadradinho */
+    return box;
+}
+
 typedef struct { const char *icon; const char *names; } CatIcon;
 /* Reconhece os nomes padrão e variações comuns, sem diferenciar acento e maiúscula (igual ao app Android). */
 static const CatIcon CAT_ICONS[] = {
@@ -158,6 +194,21 @@ static const CatIcon CAT_ICONS[] = {
     {"work", "|trabalho|adiantamento quinzenal|adiantamento|comissao|"},
 };
 
+/* cor do quadradinho pelo ícone da categoria; sem ícone próprio, uma cor estável pelo nome */
+const char *category_color(const char *category) {
+    static const struct { const char *icon, *color; } C[] = {
+        {"shopping-cart", "orange"}, {"restaurant", "orange"}, {"directions-car", "blue"}, {"local-gas-station", "blue"},
+        {"home", "green"}, {"favorite", "red"}, {"fitness-center", "red"}, {"theaters", "purple"}, {"subscriptions", "purple"},
+        {"school", "teal"}, {"more-horiz", "gray"}, {"payments", "green"}, {"attach-money", "green"}, {"savings", "teal"},
+        {"pets", "yellow"}, {"checkroom", "purple"}, {"shopping-bag", "purple"}, {"spa", "red"}, {"receipt-long", "yellow"},
+        {"redeem", "red"}, {"account-balance", "blue"}, {"work", "blue"}, {"credit-card", "purple"},
+    };
+    const char *ic = category_icon(category);
+    if (ic) for (guint i = 0; i < G_N_ELEMENTS(C); i++) if (strcmp(C[i].icon, ic) == 0) return C[i].color;
+    static const char *const ANY[] = {"blue", "green", "orange", "purple", "teal", "yellow", "red"};
+    return ANY[g_str_hash(category) % G_N_ELEMENTS(ANY)];
+}
+
 const char *category_icon(const char *category) {
     if (strcmp(category, CARD_PAYMENT_CAT) == 0) return "credit-card";
     g_autofree char *f = text_fold(category);
@@ -170,6 +221,7 @@ const char *category_icon(const char *category) {
 GtkWidget *w_category_glyph(const char *category) {
     GtkWidget *box = w_hbox(0);
     gtk_widget_add_css_class(box, "fin-glyph");
+    gtk_widget_add_css_class(box, category_color(category)); /* a mesma cor da categoria em todas as telas */
     gtk_widget_set_valign(box, GTK_ALIGN_CENTER);
     gtk_widget_set_halign(box, GTK_ALIGN_START);
     gtk_widget_set_size_request(box, 42, 42);

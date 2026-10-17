@@ -9,8 +9,8 @@ Controle financeiro pessoal **simples, privado e offline**, agora nativo para Li
 | ![Lançamentos](docs/lancamentos.png) | ![Calendário](docs/calendario.png) |
 | **Resumo e simulador** | **Janela estreita** |
 | ![Resumo (antes Relatórios)](docs/relatorios.png) | ![Estreita](docs/janela-estreita.png) |
-| **Ajustes (tema Tokyo Night)** | |
-| ![Ajustes](docs/ajustes-tokyo.png) | |
+| **Ajustes** | **Ajustes (tema Tokyo Night)** |
+| ![Ajustes](docs/ajustes.png) | ![Ajustes no tema Tokyo Night](docs/ajustes-tokyo.png) |
 
 - Lista completa do que o app faz: [FUNCIONALIDADES.md](FUNCIONALIDADES.md)
 - Como o assistente decide cada coisa: [ASSISTENTE.md](ASSISTENTE.md)

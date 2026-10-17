@@ -1,9 +1,12 @@
 /* Finan+ — Copyright (C) 2026 Juscelino Be
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
- * Ajustes: todos os cartões abrem e fecham com o botão + / −. Em telas largas ficam em duas colunas.
+ * Ajustes. Janelas a partir de 720 px (1.4.0): lista das seções à esquerda, com ícones coloridos, e a
+ * seção escolhida aberta à direita, como nas configurações do GNOME. Janelas estreitas: cartões que
+ * abrem e fecham com o botão + / −.
  */
 #include "pages.h"
+#include "charts.h"
 #include "theme.h"
 #include "widgets.h"
 #include "core/finance.h"
@@ -57,6 +60,58 @@ static gboolean idle_refresh(gpointer u) { (void)u; app_refresh(); return G_SOUR
 /* redesenha depois que o sinal atual terminar (evita destruir o widget que disparou o sinal) */
 static void later_refresh(void) { g_idle_add(idle_refresh, NULL); }
 
+/* ---------------------------------------------------------------- seções */
+
+/* cada seção: ícone, cor e grupo na lista da esquerda */
+typedef struct { const char *key, *icon, *color, *group; } SectionInfo;
+static const SectionInfo SECTIONS[] = {
+    {"aparencia", "palette", "blue", "Personalização"},
+    {"avisos", "notifications", "orange", "Personalização"},
+    {"assistente", "auto-awesome", "purple", "Planejamento e automação"},
+    {"recorrencias", "repeat", "teal", "Planejamento e automação"},
+    {"privacidade", "shield", "green", "Segurança e dados"},
+    {"dados", "database", "yellow", "Segurança e dados"},
+    {"sobre", "info", "gray", "Aplicativo"},
+};
+#define N_SECTIONS G_N_ELEMENTS(SECTIONS)
+
+/* modo lista + detalhe: título e resumo de cada seção, guardados enquanto as seções são montadas */
+static gboolean split_mode;
+static char *sec_title[N_SECTIONS], *sec_summary[N_SECTIONS];
+static char *selected = NULL; /* chave da seção aberta (NULL = Aparência) */
+
+static int section_index(const char *key) {
+    for (guint i = 0; i < N_SECTIONS; i++) if (strcmp(SECTIONS[i].key, key) == 0) return (int)i;
+    return 0;
+}
+
+/* Começa uma seção: em janelas estreitas, um cartão que abre e fecha; na lista + detalhe, o painel da
+ * direita com o título e o resumo. [content] recebe a caixa onde a seção põe o que tem. */
+static GtkWidget *section_begin(const char *key, const char *title, const char *summary, GtkWidget **content) {
+    if (!split_mode) return w_collapsible(key, title, summary, content);
+    int i = section_index(key);
+    g_free(sec_title[i]);
+    g_free(sec_summary[i]);
+    sec_title[i] = g_strdup(title);
+    sec_summary[i] = g_strdup(summary);
+    GtkWidget *card = w_card("fin-flat");
+    GtkWidget *head = w_hbox(14);
+    w_add(head, w_icon_tile(SECTIONS[i].icon, SECTIONS[i].color, TRUE));
+    GtkWidget *t = w_vbox(2);
+    gtk_widget_set_valign(t, GTK_ALIGN_CENTER);
+    GtkWidget *tl = w_label(title, "title-2");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(tl), GTK_ACCESSIBLE_PROPERTY_LEVEL, 2, -1);
+    w_add(t, tl);
+    w_add(t, w_label_wrap(summary, "fin-muted"));
+    w_add(head, t);
+    w_add(card, head);
+    GtkWidget *body = w_vbox(12);
+    gtk_widget_set_margin_top(body, 14);
+    w_add(card, body);
+    *content = body;
+    return card;
+}
+
 /* ---------------------------------------------------------------- aparência */
 
 static void set_theme(gpointer p) {
@@ -68,57 +123,70 @@ static void set_theme(gpointer p) {
     later_refresh();
 }
 
-/* bolinha de cor do tema, com contorno para não sumir quando a cor é parecida com o fundo do cartão */
-static void draw_swatch(GtkDrawingArea *a, cairo_t *cr, int w, int h, gpointer p) {
-    (void)a;
-    guint32 rgb = GPOINTER_TO_UINT(p);
-    double r = MIN(w, h) / 2.0 - 1;
-    cairo_arc(cr, w / 2.0, h / 2.0, r, 0, 2 * G_PI);
-    cairo_set_source_rgb(cr, ((rgb >> 16) & 0xFF) / 255.0, ((rgb >> 8) & 0xFF) / 255.0, (rgb & 0xFF) / 255.0);
-    cairo_fill_preserve(cr);
-    cairo_set_source_rgba(cr, 0.5, 0.5, 0.55, 0.6);
-    cairo_set_line_width(cr, 1);
-    cairo_stroke(cr);
+static void set_density(GtkToggleButton *b, gpointer v) {
+    if (!gtk_toggle_button_get_active(b) || APP->prefs->density == GPOINTER_TO_INT(v)) return;
+    APP->prefs->density = GPOINTER_TO_INT(v);
+    save_prefs();
+    app_apply_density();
 }
 
 static GtkWidget *appearance(void) {
     GtkWidget *content;
-    g_autofree char *sum = g_strdup_printf("Tema: %s", theme_label(APP->state->theme));
-    GtkWidget *card = w_collapsible("aparencia", "Aparência", sum, &content);
+    static const char *const DENS[] = {"Padrão", "Compacta", "Confortável"};
+    g_autofree char *sum = g_strdup_printf("Tema: %s · densidade %s", theme_label(APP->state->theme), DENS[APP->prefs->density]);
+    GtkWidget *card = section_begin("aparencia", "Aparência", sum, &content);
+    w_add(content, w_label("Tema", "heading"));
     GtkWidget *grid = gtk_grid_new();
-    gtk_grid_set_column_spacing(GTK_GRID(grid), 9);
-    gtk_grid_set_row_spacing(GTK_GRID(grid), 9);
+    gtk_grid_set_column_spacing(GTK_GRID(grid), 12);
+    gtk_grid_set_row_spacing(GTK_GRID(grid), 12);
     gtk_grid_set_column_homogeneous(GTK_GRID(grid), TRUE);
-    int cols = APP->layout == LAYOUT_NARROW ? 2 : 3;
+    int cols = APP->layout == LAYOUT_NARROW ? 2 : APP->layout == LAYOUT_XWIDE ? 4 : 3;
     for (int t = 0; t < THEME_COUNT; t++) {
         gboolean on = APP->state->theme == (ThemeId)t;
-        GtkWidget *b = w_vbox(7);
+        GtkWidget *b = w_vbox(8);
+        w_add(b, theme_preview_new((ThemeId)t));
         GtkWidget *tl = w_hbox(6);
         w_add(tl, w_label(theme_label((ThemeId)t), "heading"));
-        if (on) w_add(tl, w_icon("check", 16)); /* tema escolhido */
+        if (on) { GtkWidget *ck = w_icon("check", 16); gtk_widget_add_css_class(ck, "fin-accent"); w_add(tl, ck); } /* tema escolhido */
         w_add(b, tl);
-        GtkWidget *sw = w_hbox(4);
-        guint32 a, c;
-        theme_swatch((ThemeId)t, &a, &c);
-        for (int k = 0; k < 2; k++) {
-            GtkWidget *dot = gtk_drawing_area_new();
-            gtk_drawing_area_set_content_width(GTK_DRAWING_AREA(dot), 16);
-            gtk_drawing_area_set_content_height(GTK_DRAWING_AREA(dot), 16);
-            gtk_drawing_area_set_draw_func(GTK_DRAWING_AREA(dot), draw_swatch, GUINT_TO_POINTER((k ? c : a) & 0xFFFFFF), NULL);
-            w_add(sw, dot);
-        }
-        w_add(b, sw);
         GtkWidget *btn = gtk_button_new();
         gtk_button_set_child(GTK_BUTTON(btn), b);
-        gtk_widget_add_css_class(btn, "fin-theme-btn");
+        gtk_widget_add_css_class(btn, "fin-theme-card");
         if (on) gtk_widget_add_css_class(btn, "selected");
+        g_autofree char *tip = g_strdup_printf("Usar o tema %s", theme_label((ThemeId)t));
+        gtk_widget_set_tooltip_text(btn, tip);
         gtk_accessible_update_state(GTK_ACCESSIBLE(btn), GTK_ACCESSIBLE_STATE_CHECKED, on ? GTK_ACCESSIBLE_TRISTATE_TRUE : GTK_ACCESSIBLE_TRISTATE_FALSE, -1);
         g_signal_connect_swapped(btn, "clicked", G_CALLBACK(set_theme), GINT_TO_POINTER(t));
         gtk_grid_attach(GTK_GRID(grid), btn, t % cols, t / cols, 1, 1);
     }
     w_add(content, grid);
-    w_add(content, note("“Sistema” acompanha o modo claro/escuro da área de trabalho. “Material You” usa o azul do Material Design "
-                        "(no Linux não há cores do papel de parede)."));
+    w_add(content, note("“Sistema” acompanha o modo claro/escuro da área de trabalho (claro ou OLED Cinza). Os temas são os mesmos "
+                        "do app Android e da versão web; o tema vai junto no backup."));
+
+    /* densidade: só neste computador */
+    GtkWidget *row = w_hbox(16);
+    gtk_widget_set_margin_top(row, 8);
+    GtkWidget *dt = w_vbox(2);
+    gtk_widget_set_hexpand(dt, TRUE);
+    w_add(dt, w_label("Densidade", "heading"));
+    w_add(dt, w_label_wrap("Compacta mostra mais lançamentos por tela; Confortável dá mais respiro. Vale só neste computador.", "fin-muted caption"));
+    w_add(row, dt);
+    GtkWidget *seg = w_hbox(0);
+    gtk_widget_add_css_class(seg, "fin-segbar");
+    gtk_widget_set_valign(seg, GTK_ALIGN_CENTER);
+    gtk_accessible_update_property(GTK_ACCESSIBLE(seg), GTK_ACCESSIBLE_PROPERTY_LABEL, "Densidade", -1);
+    static const int ORDER[] = {DENSITY_COMFY, DENSITY_DEFAULT, DENSITY_COMPACT};
+    GtkWidget *first = NULL;
+    for (int i = 0; i < 3; i++) {
+        GtkWidget *tb = gtk_toggle_button_new_with_label(DENS[ORDER[i]]);
+        if (first) gtk_toggle_button_set_group(GTK_TOGGLE_BUTTON(tb), GTK_TOGGLE_BUTTON(first));
+        else first = tb;
+        gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(tb), APP->prefs->density == ORDER[i]);
+        g_signal_connect(tb, "toggled", G_CALLBACK(set_density), GINT_TO_POINTER(ORDER[i]));
+        w_add(seg, tb);
+    }
+    w_add(row, seg);
+    w_add(content, row);
     return card;
 }
 
@@ -183,7 +251,7 @@ static GtkWidget *privacy(void) {
     GtkWidget *content;
     gboolean pin = prefs_has_pin(APP->prefs);
     g_autofree char *sum = g_strdup_printf("%s%s", pin ? "Bloqueio por PIN ativo" : "Bloqueio desativado", APP->state->privacy ? " · valores ocultos" : "");
-    GtkWidget *card = w_collapsible("privacidade", "Privacidade e segurança", sum, &content);
+    GtkWidget *card = section_begin("privacidade", "Privacidade e segurança", sum, &content);
     GtkWidget *list = boxed();
     GtkWidget *r = manage_row(list, "Bloqueio do app", pin ? "Ativo: PIN de 4 a 8 números" : "Desativado. Defina um PIN para proteger o Finan+ neste computador.");
     suffix(r, w_pill(pin ? "Remover PIN" : "Definir PIN", pin_action, NULL, NULL));
@@ -227,7 +295,7 @@ static void test_notify(gpointer u) { (void)u; notify_check(TRUE); }
 static GtkWidget *notifications(void) {
     GtkWidget *content;
     gboolean on = APP->prefs->notifications;
-    GtkWidget *card = w_collapsible("avisos", "Avisos de vencimento", on ? "Avisos de vencimento ligados" : "Avisos de vencimento desligados", &content);
+    GtkWidget *card = section_begin("avisos", "Avisos de vencimento", on ? "Avisos de vencimento ligados" : "Avisos de vencimento desligados", &content);
     GtkWidget *list = boxed();
     switch_row(list, "Avisar vencimentos", "Contas a pagar, valores a receber e faturas, uma vez por dia a partir das 9h", on, set_notify);
     GtkWidget *lr = switch_row(list, "Avisar também ao entrar na sessão", "Verifica os vencimentos ao ligar o computador, mesmo com o Finan+ fechado",
@@ -262,7 +330,7 @@ static GtkWidget *assistant(void) {
     Prefs *pr = APP->prefs;
     GtkWidget *content;
     g_autofree char *sum = g_strdup_printf("%d de 3 funções ligadas", pr->assist_category + pr->assist_tips + pr->assist_ask);
-    GtkWidget *card = w_collapsible("assistente", "Assistente", sum, &content);
+    GtkWidget *card = section_begin("assistente", "Assistente", sum, &content);
     w_add(content, note("Funciona só neste computador, sem internet e sem enviar dados. Cada função pode ser desligada."));
     GtkWidget *list = boxed();
     switch_row(list, "Sugerir categoria", "Ao digitar a descrição de um lançamento novo", pr->assist_category, set_a_cat);
@@ -325,7 +393,7 @@ static GtkWidget *recurring(void) {
     GtkWidget *content;
     g_autofree char *sum = s->recurring->len ? g_strdup_printf("%u recorrência(s) cadastrada(s)", s->recurring->len)
                                              : g_strdup("Nenhuma recorrência cadastrada");
-    GtkWidget *card = w_collapsible("recorrencias", "Recorrências", sum, &content);
+    GtkWidget *card = section_begin("recorrencias", "Recorrências", sum, &content);
     GtkWidget *nb = w_pill("＋ Nova", new_rec, NULL, NULL);
     gtk_widget_set_halign(nb, GTK_ALIGN_END);
     w_add(content, nb);
@@ -357,7 +425,7 @@ static void d_wipe(gpointer u) { (void)u; data_wipe(); }
 
 static GtkWidget *data(void) {
     GtkWidget *content;
-    GtkWidget *card = w_collapsible("dados", "Dados", "Backup, restauração, CSV e relatório em PDF", &content);
+    GtkWidget *card = section_begin("dados", "Dados", "Backup, restauração, CSV e relatório em PDF", &content);
     GtkWidget *g = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(g), 8);
     gtk_grid_set_row_spacing(GTK_GRID(g), 8);
@@ -419,14 +487,14 @@ static void about_dialog(gpointer u) { (void)u; show_about(); }
 static GtkWidget *about(void) {
     GtkWidget *content;
     g_autofree char *sum = g_strdup_printf("Conheça o Finan+ · versão %s", APP_VERSION);
-    GtkWidget *card = w_collapsible("sobre", "Sobre", sum, &content);
+    GtkWidget *card = section_begin("sobre", "Sobre", sum, &content);
     static const char *const paras[] = {
         "Finan+ é um aplicativo para gerenciamento financeiro pessoal, desenvolvido com foco em simplicidade, privacidade, leveza e funcionamento offline.",
         "O aplicativo permite organizar receitas, despesas, contas, cartões, categorias, limites mensais, metas e lançamentos recorrentes, além de acompanhar saldos e relatórios financeiros.",
         "Esta versão é nativa para Linux, escrita em C com GTK 4 e libadwaita, com janela pensada para computador e notebook. Os dados ficam no computador, criptografados com XChaCha20-Poly1305 e chave no chaveiro do sistema, sem conta, cadastro ou servidor.",
         "Inclui avisos de vencimento, bloqueio por PIN, relatório em PDF e backup em JSON compatível com o Finan+ web e com o app Android.",
         "O assistente (sugestão de categoria, resumo do mês, dicas de economia e perguntas rápidas) funciona inteiro no computador, sem internet e sem modelo de IA externo: são regras e um classificador simples, com código aberto e explicação em cada resposta.",
-        "A interface traz os temas do Finan+: Claro, Material You, OLED, Tokyo Night e Nord.",
+        "A interface traz os temas do Finan+: Claro, Gruvbox, OLED Cinza, Gruvbox OLED, Tokyo Night e Nord, ou o do sistema.",
     };
     for (guint i = 0; i < G_N_ELEMENTS(paras); i++) w_add(content, w_label_wrap(paras[i], "fin-muted"));
     w_add(content, w_label_wrap("Privacidade em primeiro lugar: seus dados financeiros permanecem no seu dispositivo.", "heading"));
@@ -457,13 +525,50 @@ static GtkWidget *about(void) {
 
 /* ---------------------------------------------------------------- montagem */
 
-/* grupo com título ("Personalização", "Segurança e dados"…) e os cartões embaixo */
-static GtkWidget *group(const char *title) {
-    GtkWidget *g = w_vbox(10);
-    GtkWidget *h = w_label(title, "fin-muted heading");
-    gtk_widget_set_margin_top(h, 6);
-    w_add(g, h);
-    return g;
+static gboolean idle_page(gpointer u) { (void)u; page_settings_refresh(); return G_SOURCE_REMOVE; }
+
+static void pick_section(GtkButton *b, gpointer u) {
+    (void)u;
+    g_free(selected);
+    selected = g_strdup(g_object_get_data(G_OBJECT(b), "key"));
+    g_idle_add(idle_page, NULL); /* o botão clicado é recriado: redesenha depois do sinal */
+}
+
+/* lista das seções (esquerda): grupo, ícone colorido, título, resumo e a seta */
+static GtkWidget *section_list(int sel) {
+    GtkWidget *card = w_card("fin-flat");
+    gtk_widget_add_css_class(card, "fin-tight");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(card), GTK_ACCESSIBLE_PROPERTY_LABEL, "Seções de Ajustes", -1);
+    const char *last = NULL;
+    for (guint i = 0; i < N_SECTIONS; i++) {
+        if (!last || strcmp(last, SECTIONS[i].group) != 0) {
+            GtkWidget *eb = w_eyebrow(SECTIONS[i].group);
+            gtk_widget_add_css_class(eb, "fin-set-group");
+            w_add(card, eb);
+            last = SECTIONS[i].group;
+        }
+        GtkWidget *btn = gtk_button_new();
+        gtk_widget_add_css_class(btn, "fin-set-item");
+        if ((int)i == sel) gtk_widget_add_css_class(btn, "selected");
+        GtkWidget *row = w_hbox(12);
+        w_add(row, w_icon_tile(SECTIONS[i].icon, SECTIONS[i].color, FALSE));
+        GtkWidget *t = w_vbox(1);
+        gtk_widget_set_hexpand(t, TRUE);
+        gtk_widget_set_valign(t, GTK_ALIGN_CENTER);
+        w_add(t, w_label(sec_title[i] ? sec_title[i] : SECTIONS[i].key, "heading"));
+        w_add(t, w_label(sec_summary[i] ? sec_summary[i] : "", "fin-muted caption"));
+        w_add(row, t);
+        GtkWidget *ch = w_icon("chevron-right", 18);
+        gtk_widget_add_css_class(ch, "fin-chevron");
+        gtk_widget_add_css_class(ch, "fin-muted");
+        w_add(row, ch);
+        gtk_button_set_child(GTK_BUTTON(btn), row);
+        g_object_set_data(G_OBJECT(btn), "key", (gpointer)SECTIONS[i].key);
+        gtk_accessible_update_state(GTK_ACCESSIBLE(btn), GTK_ACCESSIBLE_STATE_SELECTED, (int)i == sel, -1);
+        g_signal_connect(btn, "clicked", G_CALLBACK(pick_section), NULL);
+        w_add(card, btn);
+    }
+    return card;
 }
 
 void page_settings_refresh(void) {
@@ -474,32 +579,47 @@ void page_settings_refresh(void) {
     w_add(head, w_label("Ajustes", "fin-page-title"));
     w_add(head, w_label_wrap("Tudo fica salvo e criptografado neste computador.", "fin-muted"));
     w_add(body, head);
-    /* agrupado como no Android 1.6.0; contas, cartões, limites e categorias estão em Meu dinheiro */
-    GtkWidget *g1 = group("Personalização"), *g2 = group("Planejamento e automação"), *g3 = group("Segurança e dados"), *g4 = group("Aplicativo");
-    w_add(g1, appearance()); w_add(g1, notifications());
-    w_add(g2, assistant()); w_add(g2, recurring());
-    w_add(g3, privacy()); w_add(g3, data());
-    w_add(g4, about());
-    if (APP->layout == LAYOUT_NARROW) {
-        w_add(body, g1); w_add(body, g2); w_add(body, g3); w_add(body, g4);
+    split_mode = APP->layout != LAYOUT_NARROW;
+    /* na ordem de SECTIONS */
+    GtkWidget *cards[N_SECTIONS] = {appearance(), notifications(), assistant(), recurring(), privacy(), data(), about()};
+    if (split_mode) {
+        int sel = section_index(selected ? selected : "aparencia");
+        GtkWidget *split = w_hbox(18);
+        GtkWidget *list = section_list(sel);
+        gtk_widget_set_size_request(list, APP->layout == LAYOUT_MEDIUM ? 300 : 380, -1);
+        gtk_widget_set_valign(list, GTK_ALIGN_START);
+        gtk_widget_set_hexpand(list, FALSE); /* largura fixa: o resto fica com a seção aberta */
+        w_add(split, list);
+        GtkWidget *detail = cards[sel];
+        gtk_widget_set_hexpand(detail, TRUE);
+        gtk_widget_set_valign(detail, GTK_ALIGN_START);
+        w_add(split, detail);
+        for (guint i = 0; i < N_SECTIONS; i++) if ((int)i != sel) { g_object_ref_sink(cards[i]); g_object_unref(cards[i]); }
+        w_add(body, split);
         return;
     }
-    GtkWidget *cols = w_hbox(18);
-    gtk_box_set_homogeneous(GTK_BOX(cols), TRUE);
-    GtkWidget *l = w_vbox(14), *r = w_vbox(14);
-    gtk_widget_set_valign(l, GTK_ALIGN_START); gtk_widget_set_valign(r, GTK_ALIGN_START);
-    w_add(l, g1); w_add(l, g2); w_add(r, g3); w_add(r, g4);
-    w_add(cols, l);
-    w_add(cols, r);
-    w_add(body, cols);
+    /* janelas estreitas: cartões que abrem e fecham, por grupo (como no Android 1.6.0) */
+    const char *last = NULL;
+    for (guint i = 0; i < N_SECTIONS; i++) {
+        if (!last || strcmp(last, SECTIONS[i].group) != 0) {
+            GtkWidget *h = w_label(SECTIONS[i].group, "fin-muted heading");
+            gtk_widget_set_margin_top(h, 6);
+            w_add(body, h);
+            last = SECTIONS[i].group;
+        }
+        w_add(body, cards[i]);
+    }
 }
 
 GtkWidget *page_settings_new(void) {
+    /* FINAN_PLUS_START_SECTION=dados (etc.) abre direto numa seção (só para capturas de tela da documentação) */
+    const char *ss = g_getenv("FINAN_PLUS_START_SECTION");
+    if (ss && *ss) selected = g_strdup(ss);
     GtkWidget *sw = gtk_scrolled_window_new();
     gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sw), GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     GtkWidget *clamp = adw_clamp_new();
-    adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 1400);
-    adw_clamp_set_tightening_threshold(ADW_CLAMP(clamp), 1100);
+    adw_clamp_set_maximum_size(ADW_CLAMP(clamp), 2400);
+    adw_clamp_set_tightening_threshold(ADW_CLAMP(clamp), 2000);
     body = w_vbox(14);
     gtk_widget_set_margin_start(body, 24);
     gtk_widget_set_margin_end(body, 24);

@@ -95,6 +95,30 @@ Cents current_balance(const AppState *s) {
     return n;
 }
 
+Cents balance_on(const AppState *s, Day d) {
+    Cents n;
+    balance_series(s, d, d, &n);
+    return n;
+}
+
+void balance_series(const AppState *s, Day from, Day to, Cents *out) {
+    if (to < from) return;
+    int days = (int)(to - from) + 1;
+    Cents base = 0;
+    for (guint i = 0; i < s->accounts->len; i++) base += ((Account *)s->accounts->pdata[i])->initial;
+    /* movimento de cada dia do intervalo; o que veio antes dele entra no ponto de partida */
+    Cents *delta = g_new0(Cents, days);
+    for (guint i = 0; i < s->txs->len; i++) {
+        const Tx *t = s->txs->pdata[i];
+        if (!t->paid || tx_is_card(t) || !app_account(s, t->account_id)) continue;
+        Cents v = t->kind == KIND_INCOME ? t->value : -t->value;
+        if (t->date < from) base += v;
+        else if (t->date <= to) delta[t->date - from] += v;
+    }
+    for (int i = 0; i < days; i++) { base += delta[i]; out[i] = base; }
+    g_free(delta);
+}
+
 static gint cmp_projected(gconstpointer a, gconstpointer b) {
     const Tx *x = *(Tx *const *)a, *y = *(Tx *const *)b;
     if (x->date != y->date) return x->date < y->date ? -1 : 1;

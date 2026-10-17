@@ -22,6 +22,9 @@ void w_add(GtkWidget *box, GtkWidget *child);
 void w_classes(GtkWidget *w, const char *classes); /* "a b c" */
 GtkWidget *w_card(const char *extra_classes);
 GtkWidget *w_spacer(void); /* expande na horizontal */
+GtkWidget *w_sep(void);    /* linha fina entre itens de uma lista */
+/* cabeçalho de cartão: título à esquerda e uma ação (link, botão) ou nada à direita */
+GtkWidget *w_card_head(const char *title, GtkWidget *action);
 
 /* ---- texto ---- */
 GtkWidget *w_label(const char *text, const char *classes);
@@ -39,6 +42,11 @@ GtkWidget *w_level(double fraction, const char *variant);
 /* ---- ícones (Material Symbols, nome sem "fin-"/"-symbolic") ---- */
 GtkWidget *w_icon(const char *name, int px);
 GtkWidget *w_icon_label(const char *icon, const char *text, const char *classes);
+/* ícone dentro de um quadradinho de cantos arredondados, com fundo suave da cor [color]
+ * ("blue", "green", "orange", "red", "purple", "yellow", "teal" ou "gray") */
+GtkWidget *w_icon_tile(const char *icon, const char *color, gboolean big);
+/* cor do quadradinho de uma categoria (a mesma em todas as telas) */
+const char *category_color(const char *category);
 char *icon_name(const char *name); /* "home" → "fin-home-symbolic" */
 /* ícone de categoria (NULL se não houver: mostra a inicial) */
 const char *category_icon(const char *category);
