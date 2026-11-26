@@ -1,6 +1,6 @@
 # Changelog — Finan+ para Linux
 
-## Próxima versão (1.4.0) — Visual novo para telas largas
+## 1.4.0 — Visual novo para telas largas (26/11/2026)
 
 A janela passa a usar a tela inteira, com o mesmo estilo do Finan+ (cabeçalho, barra lateral, fundo em degradê e cartões arredondados). Antes, cada tela ficava presa numa faixa de até 1.200–1.500 px no meio, e blocos sem dados sumiam, deixando a tela vazia.
 
@@ -14,6 +14,7 @@ A janela passa a usar a tela inteira, com o mesmo estilo do Finan+ (cabeçalho, 
 - **Ajustes:** lista das seções à esquerda, com **ícones coloridos** e o resumo de cada uma, e a seção escolhida aberta à direita (como nas configurações do GNOME). Em janelas estreitas continuam os cartões que abrem e fecham.
 - **Aparência:** os temas aparecem como miniaturas da janela. **Gruvbox** e **Gruvbox OLED** entraram, com as mesmas cores do app Android 1.6; o **Material You saiu** (um backup com "materialBlue" abre no tema Claro, como no Android). Nova opção **Densidade** (Confortável, Padrão, Compacta), guardada só neste computador.
 - **Ícones de categoria coloridos** em todas as listas, sempre na mesma cor por categoria.
+- **AppImage volta a abrir no Debian 13:** ele passa a usar a biblioteca de PDF (Poppler) do próprio sistema, em vez de levar a do Ubuntu, que dependia de uma `libjpeg` que o Debian não tem.
 
 ### Por dentro
 
