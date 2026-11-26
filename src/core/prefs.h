@@ -26,6 +26,19 @@ typedef struct {
     /* espaçamento da interface (só neste computador): DENSITY_DEFAULT, DENSITY_COMPACT ou DENSITY_COMFY */
     int density;
     char *last_notified;       /* "AAAA-MM-DD" do último aviso, para não repetir no mesmo dia */
+    /* Lançamentos › Acumular saldo entre os meses (Android 1.8; desligada = cada mês isolado) */
+    gboolean accumulate;
+    /* Aparência › Efeito vidro (Android 1.8; desligado = visual de antes) */
+    gboolean glass;
+    /* migração das categorias da 1.11 do Android (cartão e limite especial fora da lista, Empréstimo → Dívidas) */
+    gboolean cats_migrated;
+    /* Backup automático (BACKUP-AUTOMATICO.md): pasta ("" = desligado), cópias guardadas, última cópia e erro.
+     * A senha fica cifrada com a chave dos dados (store.h), nunca aqui. */
+    char *auto_backup_dir;
+    int auto_backup_keep;
+    gint64 auto_backup_last;   /* g_get_real_time() da última cópia; 0 = nunca */
+    char *auto_backup_file;
+    char *auto_backup_error;
     /* Bloqueio automático (só neste computador; restaurar um backup não muda a segurança):
      * AUTOLOCK_IMMEDIATE, minutos sem usar (1, 5, 15, 30) ou AUTOLOCK_ON_OPEN. */
     int auto_lock;

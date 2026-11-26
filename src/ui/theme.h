@@ -16,6 +16,8 @@ typedef struct {
 } FinPalette;
 
 void theme_apply(ThemeId t);
+/* efeito vidro (Ajustes › Aparência; vale a partir do próximo theme_apply) */
+void theme_set_glass(gboolean on);
 const FinPalette *theme_palette(void);
 const FinPalette *theme_palette_for(ThemeId t, gboolean system_dark);
 void theme_rgba(guint32 argb, GdkRGBA *out);

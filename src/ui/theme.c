@@ -26,6 +26,37 @@ static const FinPalette PALETTES[] = {
 enum { P_LIGHT, P_GRUVBOX, P_OLED, P_TOKYO, P_NORD, P_GRUVBOX_OLED };
 
 static GtkCssProvider *provider = NULL;
+static gboolean glass = FALSE;
+static char *css(guint32 argb);
+
+void theme_set_glass(gboolean on) { glass = on; }
+
+/* Efeito vidro (Android 1.8): cartões translúcidos, com uma borda clara em cima, sobre brilhos suaves nas cores do
+ * tema. Nos temas escuros os brilhos e a translucidez são menores (texto legível); no OLED quase apagados. */
+static char *build_glass(const FinPalette *p) {
+    if (!glass) return g_strdup("");
+    gboolean oled = (p->bg & 0x00FFFFFF) == 0;
+    double glow = oled ? 0.06 : p->dark ? 0.16 : 0.55;
+    double card = oled ? 0.86 : p->dark ? 0.72 : 0.52;
+    double edge = p->dark ? 0.10 : 0.75;
+    char g1[G_ASCII_DTOSTR_BUF_SIZE], g2[G_ASCII_DTOSTR_BUF_SIZE], ca[G_ASCII_DTOSTR_BUF_SIZE], ed[G_ASCII_DTOSTR_BUF_SIZE];
+    g_ascii_formatd(g1, sizeof g1, "%.2f", glow);
+    g_ascii_formatd(g2, sizeof g2, "%.2f", glow * 0.8);
+    g_ascii_formatd(ca, sizeof ca, "%.2f", card);
+    g_ascii_formatd(ed, sizeof ed, "%.2f", edge);
+    g_autofree char *bg = css(p->bg), *accent = css(p->accent), *goal = css(p->goal), *ga = css(p->glow_a), *gb = css(p->glow_b),
+                    *surface = css(p->surface | 0xFF000000);
+    return g_strdup_printf(
+        ".fin-content { background-color: %1$s; background-image:"
+        " radial-gradient(circle at 12%% 8%%, alpha(%2$s, %6$s), transparent 34%%),"
+        " radial-gradient(circle at 88%% 22%%, alpha(%3$s, %7$s), transparent 30%%),"
+        " radial-gradient(circle at 70%% 92%%, alpha(%4$s, %6$s), transparent 40%%),"
+        " radial-gradient(circle at 18%% 78%%, alpha(%5$s, %7$s), transparent 36%%); }\n"
+        ".fin-card { background-color: alpha(%8$s, %9$s); border: 1px solid alpha(white, 0.06);"
+        " border-top: 1px solid alpha(white, %10$s); }\n"
+        ".fin-stat, .fin-stat-soft { background-color: alpha(%8$s, %9$s); }\n",
+        bg, accent, goal, ga, gb, g1, g2, surface, ca, ed);
+}
 static const FinPalette *current = &PALETTES[P_LIGHT];
 
 const FinPalette *theme_palette(void) { return current; }
@@ -237,7 +268,9 @@ static char *build_widgets(const FinPalette *p) {
         "button.suggested-action { background-color: %4$s; color: %5$s; background-image: none; border: none; }\n"
         "button.suggested-action:hover { background-color: shade(%4$s, 1.08); }\n"
         "button.suggested-action:active { background-color: shade(%4$s, 0.92); }\n"
-        "button.destructive-action { color: %10$s; }\n"
+        /* texto vermelho sobre fundo vermelho-claro: com o fundo vermelho cheio do libadwaita o rótulo sumia */
+        "button.destructive-action { color: %10$s; background-color: alpha(%10$s, 0.12); background-image: none; border: none; }\n"
+        "button.destructive-action:hover { background-color: alpha(%10$s, 0.18); }\n"
         /* listas arredondadas (boxed-list: ex. "O que há de novo"/"Detalhes" em Sobre, editores): temas do sistema
            como o Blackline pintam o fundo da lista sem cantos arredondados, aparecendo um quadrado atrás do cartão */
         "list.boxed-list { background-color: %7$s; border-radius: 12px; box-shadow: 0 0 0 1px %8$s; border: none; }\n"
@@ -342,6 +375,7 @@ static char *build_extra(const FinPalette *p) {
         ".fin-ico.goal, .fin-glyph.goal { background-color: %3$s; color: %1$s; }\n"
         ".fin-ico.card, .fin-glyph.card { background-color: %4$s; color: %2$s; }\n"
         ".fin-dot.goal { background-color: %1$s; }\n.fin-dot.card { background-color: %2$s; }\n"
+        "levelbar.fin-level.goal block.filled { background-color: %1$s; }\n"
         ".fin-badge.goal { background-color: %3$s; color: %1$s; }\n",
         goal, card, goal_soft, card_soft);
     return g_string_free(g, FALSE);
@@ -364,7 +398,8 @@ void theme_apply(ThemeId t) {
     g_autofree char *vars = adw_get_major_version() > 1 || adw_get_minor_version() >= 6 ? build_vars(current) : g_strdup("");
     g_autofree char *widgets = build_widgets(current);
     g_autofree char *extra = build_extra(current);
-    g_autofree char *sheet = g_strconcat(base, vars, widgets, extra, NULL);
+    g_autofree char *gl = build_glass(current);
+    g_autofree char *sheet = g_strconcat(base, vars, widgets, extra, gl, NULL);
     gtk_css_provider_load_from_string(provider, sheet);
     if (g_getenv("FINAN_PLUS_DEBUG")) g_printerr("[Finan+] tema %d aplicado (escuro=%d, libadwaita %u.%u)\n", t, current->dark, adw_get_major_version(), adw_get_minor_version());
 }

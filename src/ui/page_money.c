@@ -10,6 +10,8 @@
 #include "pages.h"
 #include "widgets.h"
 #include "core/finance.h"
+#include "core/debts.h"
+#include "core/assist.h"
 #include <string.h>
 
 static GtkWidget *body;
@@ -27,6 +29,7 @@ static void new_limit(gpointer u) { (void)u; editor_limit(NULL); }
 static void open_goal(gpointer id) { editor_goal(id); }
 static void new_goal(gpointer u) { (void)u; editor_goal(NULL); }
 static void open_sim(gpointer u) { (void)u; simulator_open(); }
+static void new_transfer(gpointer u) { (void)u; editor_transfer(NULL); }
 
 static GtkWidget *boxed(void) {
     GtkWidget *l = gtk_list_box_new();
@@ -102,12 +105,24 @@ static GtkWidget *wallet_row(const char *icon, const char *color, const char *na
 static GtkWidget *wallet(void) {
     const AppState *s = APP->state;
     GtkWidget *c = card_box();
-    g_autofree char *count = g_strdup_printf("%u conta(s) · %u cartão(ões)", s->accounts->len, s->cards->len);
-    w_add(c, money_head_c("account-balance", "blue", "Contas e cartões", count, NULL));
+    g_autofree char *na = br_plural((int)s->accounts->len, "conta", "contas"), *nk = br_plural((int)s->cards->len, "cartão", "cartões");
+    g_autofree char *count = g_strdup_printf("%s · %s", na, nk);
+    /* transferir entre contas (Android 1.13): só com duas contas ou mais */
+    GtkWidget *tr = s->accounts->len >= 2 ? w_button("Transferir", "transfer", "fin-pill", new_transfer, NULL, NULL) : NULL;
+    if (tr) gtk_widget_set_tooltip_text(tr, "Mover dinheiro de uma conta para outra, sem contar como receita ou despesa");
+    w_add(c, money_head_c("account-balance", "blue", "Contas e cartões", count, tr));
     for (guint i = 0; i < s->accounts->len; i++) {
         Account *a = s->accounts->pdata[i];
         Cents b = account_balance(s, a);
-        w_add(c, wallet_row("account-balance-wallet", "blue", a->name, "Conta", b, b < 0 ? "fin-money-mid fin-red" : "fin-money-mid",
+        /* quanto saiu desta conta para metas pelo Finan+ (reservas − retiradas) */
+        Cents in_goals = 0;
+        for (guint k = 0; k < s->txs->len; k++) {
+            const Tx *t = s->txs->pdata[k];
+            if (tx_is_goal(t) && t->paid && strcmp(t->account_id, a->id) == 0) in_goals += t->kind == KIND_EXPENSE ? t->value : -t->value;
+        }
+        g_autofree char *gv = app_money(in_goals);
+        g_autofree char *sub = in_goals > 0 ? g_strdup_printf("Conta · + %s guardados em metas", gv) : g_strdup("Conta");
+        w_add(c, wallet_row("account-balance-wallet", "blue", a->name, sub, b, b < 0 ? "fin-money-mid fin-red" : "fin-money-mid",
                             a->id, G_CALLBACK(acc_clicked), -1));
     }
     if (!s->cards->len) w_add(c, w_label_wrap("Sem cartão cadastrado. Você pode adicionar um para acompanhar faturas e vencimentos.", "fin-muted caption"));
@@ -123,7 +138,7 @@ static GtkWidget *wallet(void) {
                                    : g_strdup_printf("Sem fatura aberta · disponível %s", avail);
         Cents open = cur ? invoice_open(cur) : 0;
         double used = k->limit > 0 ? (double)st.used / k->limit : -1;
-        w_add(c, wallet_row("credit-card", "purple", k->name, sub, open, open > 0 ? "fin-money-mid fin-red" : "fin-money-mid", k->id,
+        w_add(c, wallet_row("credit-card", "card", k->name, sub, open, open > 0 ? "fin-money-mid fin-red" : "fin-money-mid", k->id,
                             G_CALLBACK(card_clicked), used));
         if (cur && open > 0) {
             GtkWidget *pay = w_button("Pagar fatura", "credit-card", "fin-pill", open_pay, g_strdup(k->id), g_free);
@@ -162,9 +177,13 @@ static GtkWidget *totals_strip(void) {
     gtk_widget_add_css_class(strip, "fin-card");
     gtk_widget_add_css_class(strip, "fin-tight");
     gtk_widget_set_valign(strip, GTK_ALIGN_CENTER);
+    /* "Em metas" (Android 1.10): o que já está guardado nas metas, fora do saldo das contas */
+    Cents goals = 0;
+    for (guint i = 0; i < s->goals->len; i++) goals += ((Goal *)s->goals->pdata[i])->saved;
     struct { const char *label; Cents v; const char *cls; } items[] = {
-        {"Saldo das contas", bal, bal < 0 ? "fin-money-mid fin-red" : "fin-money-mid"},
-        {"Faturas em aberto", inv, inv > 0 ? "fin-money-mid fin-red" : "fin-money-mid"},
+        {"Na conta", bal, bal < 0 ? "fin-money-mid fin-red" : "fin-money-mid"},
+        {"Em metas", goals, "fin-money-mid fin-goal"},
+        {"Faturas abertas", inv, inv > 0 ? "fin-money-mid fin-red" : "fin-money-mid"},
         {"Livre depois das faturas", bal - inv, bal - inv < 0 ? "fin-money-mid fin-red" : "fin-money-mid fin-accent"},
     };
     for (guint i = 0; i < G_N_ELEMENTS(items); i++) {
@@ -173,7 +192,7 @@ static GtkWidget *totals_strip(void) {
         w_add(b, w_money(items[i].v, items[i].cls));
         w_add(strip, b);
     }
-    gtk_widget_set_tooltip_text(strip, "Faturas em aberto: a atual e as fechadas que ainda não foram pagas.");
+    gtk_widget_set_tooltip_text(strip, "Em metas: o que já foi guardado nas metas. Faturas abertas: a atual e as fechadas que ainda não foram pagas.");
     return strip;
 }
 
@@ -229,7 +248,12 @@ static void goal_clicked(GtkButton *b, gpointer u) { (void)u; open_goal(g_object
 static GtkWidget *goals(void) {
     const AppState *s = APP->state;
     GtkWidget *c = card_box();
-    w_add(c, money_head_c("flag", "green", "Metas", "Acompanhe seus objetivos financeiros",
+    Cents saved = 0;
+    for (guint i = 0; i < s->goals->len; i++) saved += ((Goal *)s->goals->pdata[i])->saved;
+    g_autofree char *sv = app_money(saved);
+    g_autofree char *gsub = s->goals->len ? g_strdup_printf("%s guardados", sv)
+                                          : g_strdup("Acompanhe seus objetivos financeiros");
+    w_add(c, money_head_c("flag", "goal", "Metas", gsub,
                         s->goals->len ? w_button("Criar meta", "add", "fin-pill", new_goal, NULL, NULL) : NULL));
     if (!s->goals->len) {
         w_add(c, w_label_wrap("Uma meta ajuda a acompanhar um objetivo, como uma viagem ou uma reserva.", "fin-muted caption"));
@@ -251,7 +275,7 @@ static GtkWidget *goals(void) {
         w_add(top, w_label(" / ", "fin-muted"));
         w_add(top, w_money(g->target, NULL));
         w_add(b, top);
-        w_add(b, w_level((double)g->saved / g->target, NULL));
+        w_add(b, w_level((double)g->saved / g->target, "goal"));
         char d[11];
         g_autofree char *info = g->deadline != DAY_NONE ? g_strdup_printf("Até %s%s", day_br(g->deadline, d), p.past_due ? " · prazo vencido" : "")
                                                         : g_strdup("Sem prazo");
@@ -277,6 +301,48 @@ static GtkWidget *goals(void) {
         gtk_button_set_child(GTK_BUTTON(btn), b);
         g_object_set_data_full(G_OBJECT(btn), "id", g_strdup(g->id), g_free);
         g_signal_connect(btn, "clicked", G_CALLBACK(goal_clicked), NULL);
+        w_add(c, btn);
+    }
+    return c;
+}
+
+/* ---------------------------------------------------------------- dívidas (Android 1.11) */
+
+static void open_debt(gpointer q) { app_open_moves(q, DAY_NONE, DAY_NONE, KIND_EXPENSE); }
+
+static GtkWidget *debts(void) {
+    const AppState *s = APP->state;
+    GtkWidget *c = card_box();
+    g_autoptr(GPtrArray) l = debts_list(s);
+    g_autofree char *sum = debts_summary(s, app_hidden());
+    w_add(c, money_head_c("debt", "red", "Dívidas", sum ? sum : "Empréstimos e financiamentos em parcelas", NULL));
+    if (!l->len) {
+        w_add(c, w_label_wrap("Lance as parcelas de um empréstimo ou financiamento na categoria Dívidas: elas aparecem aqui, "
+                              "com a próxima parcela e quanto falta.", "fin-muted caption"));
+        return c;
+    }
+    for (guint i = 0; i < l->len; i++) {
+        Debt *d = l->pdata[i];
+        GtkWidget *btn = gtk_button_new();
+        gtk_widget_add_css_class(btn, "fin-row");
+        gtk_widget_set_tooltip_text(btn, "Ver as parcelas em Lançamentos");
+        GtkWidget *b = w_vbox(6);
+        GtkWidget *top = w_hbox(4);
+        GtkWidget *n = w_label(d->name, "heading");
+        gtk_widget_set_hexpand(n, TRUE);
+        w_add(top, n);
+        w_add(top, w_money(d->pending_total, debt_done(d) ? "fin-green" : NULL));
+        w_add(b, top);
+        int paid = d->total_count - d->pending_count;
+        w_add(b, w_level(d->total_count ? (double)paid / d->total_count : 1, NULL));
+        char dd[11];
+        g_autofree char *nv = d->next ? app_money(d->next->value) : NULL;
+        g_autofree char *info = debt_done(d) ? g_strdup_printf("Quitada · %d parcelas", d->total_count)
+            : d->next ? g_strdup_printf("%d de %d pagas · próxima %s em %s", paid, d->total_count, nv, day_br(d->next->date, dd))
+            : g_strdup_printf("%d de %d pagas", paid, d->total_count);
+        w_add(b, w_label(info, d->next && d->next->date < APP->today ? "fin-red caption" : "fin-muted caption"));
+        gtk_button_set_child(GTK_BUTTON(btn), b);
+        g_signal_connect_data(btn, "clicked", G_CALLBACK(open_debt), g_strdup(d->name), (GClosureNotify)(void (*)(void))g_free, G_CONNECT_SWAPPED);
         w_add(c, btn);
     }
     return c;
@@ -337,7 +403,8 @@ static void delete_cat(gpointer p) {
     OpErr e;
     if (!ops_check_delete_category(APP->state, c->kind, c->name, &e)) { dlg_notice(e.title, e.msg); return; }
     int used = ops_category_use_count(APP->state, c->kind, c->name);
-    g_autofree char *msg = used > 0 ? g_strdup_printf("Excluir “%s” da lista? %d lançamento(s) antigo(s) continuará(ão) com essa categoria no histórico.", c->name, used)
+    g_autofree char *msg = used == 1 ? g_strdup_printf("Excluir “%s” da lista? 1 lançamento antigo continuará com essa categoria no histórico.", c->name)
+                         : used > 1 ? g_strdup_printf("Excluir “%s” da lista? %d lançamentos antigos continuarão com essa categoria no histórico.", c->name, used)
                                     : g_strdup_printf("Excluir a categoria “%s”?", c->name);
     dlg_confirm("Excluir categoria", msg, "Excluir", TRUE, do_delete_cat, cat_ref(c->kind, c->name), cat_ref_free);
 }
@@ -443,9 +510,9 @@ void page_money_refresh(void) {
     }
     w_add(head, strip);
     w_add(body, head);
-    GtkWidget *wal = wallet(), *lim = limits(), *gl = goals(), *sim = simulate(), *cat = categories();
+    GtkWidget *wal = wallet(), *lim = limits(), *gl = goals(), *sim = simulate(), *cat = categories(), *dbt = debts(), *sh = shared_card();
     if (APP->layout == LAYOUT_NARROW) {
-        GtkWidget *all[] = {wal, lim, gl, sim, cat};
+        GtkWidget *all[] = {wal, gl, lim, dbt, sh, sim, cat};
         for (guint i = 0; i < G_N_ELEMENTS(all); i++) w_add(body, all[i]);
         return;
     }
@@ -458,14 +525,18 @@ void page_money_refresh(void) {
         put(g, wal, 0, 0, 1);
         put(g, gl, 1, 0, 1);
         put(g, lim, 2, 0, 1);
-        put(g, cat, 0, 1, 2);
+        put(g, dbt, 0, 1, 1);
+        put(g, sh, 1, 1, 1);
         put(g, sim, 2, 1, 1);
+        put(g, cat, 0, 2, 3);
     } else {
         put(g, wal, 0, 0, 1);
-        put(g, lim, 1, 0, 1);
-        put(g, gl, 0, 1, 1);
-        put(g, sim, 1, 1, 1);
-        put(g, cat, 0, 2, 2);
+        put(g, gl, 1, 0, 1);
+        put(g, lim, 0, 1, 1);
+        put(g, dbt, 1, 1, 1);
+        put(g, sh, 0, 2, 1);
+        put(g, sim, 1, 2, 1);
+        put(g, cat, 0, 3, 2);
     }
     w_add(body, g);
 }

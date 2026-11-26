@@ -1,5 +1,48 @@
 # Changelog — Finan+ para Linux
 
+## Próxima versão (1.5.0) — Paridade com o app Android 1.7 a 1.13
+
+Traz para o Linux o que entrou no app Android depois da 1.6.0, com o layout de computador. As regras de cálculo são traduções diretas do Kotlin e passam nos mesmos casos de teste (`tests/test_paridade.c`). Detalhes em [PARIDADE-ANDROID.md](PARIDADE-ANDROID.md).
+
+### Para quem usa
+
+- **Reserva para metas (Android 1.7):** ao guardar numa meta, a opção **Tirar da conta** (ligada) cria o lançamento "Meta › nome", que sai do saldo da conta escolhida mas **não é despesa** (fica fora das despesas, dos limites, dos relatórios e do assistente). Retirar devolve para a conta; excluir o lançamento desfaz o valor na meta; excluir a meta devolve à conta o que saiu dela. Em Lançamentos, a reserva aparece em âmbar e fica fora do total do dia ("R$ X em metas"); no calendário ganha um pontinho próprio.
+- **Transferência entre contas (Android 1.13):** no botão **⋯** do topo (ou Ctrl+T) e em Meu dinheiro › Contas e cartões › **Transferir**. O valor sai de uma conta e entra na outra no mesmo dia, sem contar como receita ou despesa. Na lista aparecem os dois lados ("Enviada para…" e "Recebida de…"); editar ou excluir um lado mexe nos dois.
+- **Despesas compartilhadas (Android 1.8/1.9):** em Meu dinheiro (e no botão **⋯**). Divisão igual ou pelo valor de cada um, quem pagou, pagamentos totais ou parciais, histórico com busca, situação e pessoa, e o comprovante como **imagem** na identidade do Finan+ ou em **PDF**. Não mexe no saldo.
+- **Dívidas (Android 1.11):** novo cartão em Meu dinheiro com os empréstimos e financiamentos da categoria Dívidas, a próxima parcela e quanto falta.
+- **Um número, um nome, uma regra (Android 1.11):** Início, barra lateral, Resumo e o gráfico de evolução usam o mesmo cálculo de a receber, a pagar, reservado para metas e previsto. Contas atrasadas entram no "a pagar" do mês atual, e os aportes mensais planejados das metas que ainda faltam saem do previsto (a meta já guardada não é descontada duas vezes).
+- **Meu dinheiro:** faixa com **Na conta**, **Em metas**, **Faturas abertas** e **Livre depois das faturas**; cada conta mostra quanto saiu dela para metas.
+- **Resumo:** "Resultado até agora" desconta o que foi guardado em metas (com a legenda "não entram nas despesas"), o mês atual mostra o mesmo **saldo previsto** do Início e o fluxo do dinheiro ganha "Guardado em metas".
+- **Acumular saldo entre os meses (Android 1.8):** em **Ajustes › Lançamentos**. Ligada, o saldo de Lançamentos e do Resumo soma o saldo inicial e o que sobrou dos meses anteriores, e o relatório em PDF ganha "Saldo anterior", "Saldo acumulado" e a coluna **Acumulado**. Desligada (padrão), nada muda.
+- **Backup automático (Android 1.7):** em **Ajustes › Dados**. Uma cópia por dia, criptografada com senha (AES-256-GCM, PBKDF2), numa pasta escolhida (do computador, de um pendrive ou sincronizada). Guarda as últimas 7, 14, 30 ou 60 cópias. **Restaurar** abre essas cópias pedindo a senha, inclusive as feitas pelo app Android (o formato é o mesmo).
+- **Efeito vidro (Android 1.8):** em **Ajustes › Aparência**, desligado por padrão. Cartões translúcidos sobre brilhos suaves, mais discreto nos temas escuros e OLED.
+- **Ícones Phosphor (Android 1.12):** todos os ícones trocados de Material Symbols para Phosphor Icons (MIT); dentro dos quadradinhos, o peso Duotone. Metas usam âmbar e cartões, lilás, em todos os temas.
+- **Categorias (Android 1.11):** "Cartão de Crédito" e "Limite Especial" saem da lista (cartão é forma de pagamento) e "Empréstimo" vira **Dívidas**, uma vez por computador. Lançamentos antigos guardam o nome. "Dívidas" passa a fazer parte das categorias padrão.
+- **Textos:** sinal de menos tipográfico ("− R$ 0,50") e plurais corretos no lugar de "conta(s)".
+- **Correção:** o botão vermelho "Excluir" dos formulários mostrava o fundo sem o texto.
+
+### Backup
+
+- Os campos novos do Android (`goalId`, `transferId` e `shared`) são lidos e gravados. Antes, um backup do Android aberto no Linux perdia as despesas compartilhadas ao ser salvo de novo, e as reservas e transferências viravam despesas comuns. Transferência com um lado só vira lançamento comum, como no Android.
+
+### Por dentro
+
+| Arquivo | Mudança |
+|---|---|
+| `src/core/model.c`, `model.h` | `goal_id` e `transfer_id` nos lançamentos (`tx_is_flow` deixa de fora reserva e transferência); despesas compartilhadas no estado; "Dívidas" nas categorias padrão |
+| `src/core/backup.c` | Leitura e escrita de `goalId`, `transferId` e `shared`, com as mesmas validações do Android; `"auto": true` nas cópias automáticas |
+| `src/core/ops.c` | `ops_save_transfer`, reserva em `ops_save_goal`, `ops_goal_from_accounts`, `ops_delete_goal` devolvendo à conta; editar reserva ou transferência pelo formulário comum é recusado |
+| `src/core/transfers.c`, `shared.c`, `totals.c`, `debts.c`, `txform.c` | Novos: traduções de `Transfers.kt`, `Shared.kt`, `Totals.kt`, `Debts.kt` e `TxForm.kt` |
+| `src/core/backup_crypto.c`, `autobackup.c` | Novos: formato criptografado do Android (OpenSSL) e as cópias diárias |
+| `src/core/period.c`, `finance.c`, `report.c`, `assist_*.c` | Total do dia sem reservas (`period_day_total`), calendário com metas, `forecast_from_start`, `goal_moves`, saldo acumulado no relatório, transferências fora das receitas do assistente |
+| `src/ui/shared_ui.c`, `shared_receipt.c` | Novos: telas das despesas compartilhadas e o comprovante (imagem e PDF) |
+| `src/ui/editors.c` | Reserva no editor de meta, consulta do lançamento de meta e editor de transferência |
+| `src/ui/page_*.c`, `window.c`, `theme.c` | Telas acima, botão **⋯**, efeito vidro, cores de meta e cartão, backup automático |
+| `tools/phosphor-icons.py`, `tools/phosphor-map.txt`, `third_party/phosphor/` | Geração dos ícones Phosphor e a licença MIT |
+| `tests/test_paridade.c` | 47 casos: os de `TransferTest`, `GoalReserveTest`, `SharedTest`, `TotalsTest`, `DebtsTest`, `DayTotalTest`, `CategoryMigrationTest`, `AccumulatedBalanceTest`, `AccumulatedReportTest`, `TxFormTest` e `BackupCryptoTest`, mais uma cópia feita com o algoritmo do Android |
+
+Nova dependência: **OpenSSL 3** (`libssl3t64` ou `libssl3` no `.deb`; `libssl-dev` para compilar), usada só no backup criptografado. Para capturas de tela, `FINAN_PLUS_START_DIALOG=transferencia` (e `despesa`, `compartilhada:<id>`, `meta:<id>`) abre um formulário ao iniciar.
+
 ## 1.4.0 — Visual novo para telas largas (26/11/2026)
 
 A janela passa a usar a tela inteira, com o mesmo estilo do Finan+ (cabeçalho, barra lateral, fundo em degradê e cartões arredondados). Antes, cada tela ficava presa numa faixa de até 1.200–1.500 px no meio, e blocos sem dados sumiam, deixando a tela vazia.

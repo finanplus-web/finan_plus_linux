@@ -464,7 +464,9 @@ static void jkm(GString *o, const char *key, Cents c) {
 
 static void jks(GString *o, const char *key, const char *v) { jk(o, key, TRUE); js(o, v); }
 
-char *backup_to_json(const AppState *s, const char *app_version) {
+char *backup_to_json(const AppState *s, const char *app_version) { return backup_to_json_ext(s, app_version, FALSE); }
+
+char *backup_to_json_ext(const AppState *s, const char *app_version, gboolean is_auto) {
     GString *o = g_string_sized_new(4096 + s->txs->len * 220);
     char b[32];
     g_string_append(o, "{\"txs\":[");
@@ -600,6 +602,7 @@ char *backup_to_json(const AppState *s, const char *app_version) {
         jks(o, "appVersion", app_version);
         jks(o, "platform", "linux");
         jks(o, "createdAt", iso);
+        if (is_auto) g_string_append(o, ",\"auto\":true");
         g_string_append_c(o, '}');
     }
     g_string_append_c(o, '}');

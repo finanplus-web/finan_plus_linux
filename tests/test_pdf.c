@@ -6,6 +6,8 @@
  */
 #include "core/backup.h"
 #include "ui/pdf.h"
+#include "ui/shared_receipt.h"
+#include "core/shared.h"
 #include <glib/gstdio.h>
 #include <string.h>
 
@@ -60,6 +62,47 @@ static void test_many_pages(void) {
     g_assert_cmpint(p1, >=, 10);
 }
 
+/* comprovante de despesa compartilhada (imagem e PDF) e o relatório com o saldo acumulado */
+static void test_shared_receipt(void) {
+    g_autoptr(AppState) s = app_state_new();
+    SharedPersonDraft p[3] = {{"", "Eu", ""}, {"", "Ana", ""}, {"", "Pedro", ""}};
+    Day d;
+    day_parse_iso("2026-11-21", &d);
+    SharedDraft dr = {"Churrasco", "450", d, SPLIT_EQUAL, p, 3, 0, ""};
+    g_assert_true(shared_save(s, NULL, &dr, NULL));
+    SharedExpense *e = s->shared->pdata[0];
+    g_assert_true(shared_add_payment(s, e->id, ((SharedPerson *)e->people->pdata[1])->id, "150", d, NULL));
+    g_autofree char *dir = g_dir_make_tmp("finan-rcpt-XXXXXX", NULL);
+    g_autofree char *png = g_build_filename(dir, "r.png", NULL), *pdf = g_build_filename(dir, "r.pdf", NULL);
+    g_autoptr(GError) err = NULL;
+    g_assert_true(shared_receipt_write(e, png, FALSE, &err));
+    g_assert_no_error(err);
+    g_assert_true(shared_receipt_write(e, pdf, TRUE, &err));
+    g_autofree char *a = NULL, *b = NULL;
+    gsize na = 0, nb = 0;
+    g_assert_true(g_file_get_contents(png, &a, &na, NULL));
+    g_assert_true(g_file_get_contents(pdf, &b, &nb, NULL));
+    g_assert_true(na > 8 && memcmp(a, "\x89PNG", 4) == 0);
+    g_assert_true(g_str_has_prefix(b, "%PDF-"));
+    if (g_getenv("FINAN_RECEIPT_OUT")) g_file_set_contents(g_getenv("FINAN_RECEIPT_OUT"), a, (gssize)na, NULL);
+    g_unlink(png); g_unlink(pdf); g_rmdir(dir);
+}
+
+static void test_accumulated_pdf(void) {
+    g_autoptr(AppState) s = app_state_new();
+    Day a, b;
+    day_parse_iso("2026-09-01", &a);
+    day_parse_iso("2026-11-30", &b);
+    g_ptr_array_add(s->txs, tx_new("x", KIND_INCOME, 300000, a + 4, "Salário", "Salário", TRUE, "main", ""));
+    g_autofree char *dir = g_dir_make_tmp("finan-pdf-XXXXXX", NULL);
+    g_autofree char *path = g_build_filename(dir, "r.pdf", NULL);
+    g_autoptr(GError) e = NULL;
+    g_assert_true(pdf_report_render_ext(s, path, a, b, FALSE, b, TRUE, &e));
+    g_assert_no_error(e);
+    g_unlink(path);
+    g_rmdir(dir);
+}
+
 int main(int argc, char **argv) {
     if (argc == 3 && g_str_has_suffix(argv[1], ".json")) {
         g_autofree char *text = NULL;
@@ -77,5 +120,7 @@ int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/pdf/empty", test_empty);
     g_test_add_func("/pdf/many-pages", test_many_pages);
+    g_test_add_func("/pdf/shared-receipt", test_shared_receipt);
+    g_test_add_func("/pdf/accumulated", test_accumulated_pdf);
     return g_test_run();
 }

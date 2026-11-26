@@ -9,6 +9,7 @@
  * por dia), categorias e fluxo do dinheiro lado a lado e, embaixo, a evolução e o saldo acumulado.
  */
 #include "pages.h"
+#include "core/totals.h"
 #include "charts.h"
 #include "pdf.h"
 #include "theme.h"
@@ -283,8 +284,8 @@ static GtkWidget *summary(void) {
     GtkWidget *row = w_hbox(12);
     gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
     gtk_accessible_update_property(GTK_ACCESSIBLE(row), GTK_ACCESSIBLE_PROPERTY_LABEL, "Resumo do período", -1);
-    w_add(row, sum_box("arrow-upward", "Receitas", fl.income, "fin-money-big fin-green", ci));
-    w_add(row, sum_box("arrow-downward", "Despesas", fl.expense, "fin-money-big fin-red", ce));
+    w_add(row, sum_box("income", "Receitas", fl.income, "fin-money-big fin-green", ci));
+    w_add(row, sum_box("expense", "Despesas", fl.expense, "fin-money-big fin-red", ce));
     return row;
 }
 
@@ -368,7 +369,8 @@ static GtkWidget *flow_card(Flow fl) {
     gtk_widget_set_valign(c, GTK_ALIGN_START);
     w_add(c, w_section_head("Análises", "Fluxo do dinheiro"));
     w_add(c, w_label_wrap("De onde veio (em cima) e para onde foi (embaixo).", "fin-muted caption"));
-    Cents scale = MAX(MAX(fl.income, fl.expense), 1);
+    g_autoptr(GPtrArray) all = in_range(f->from, f->to);
+    Cents scale = MAX(MAX(fl.income, fl.expense + MAX(0, goal_moves_net(goal_moves(all)))), 1);
 
     /* receitas realizadas (sem pagamento de fatura) por categoria, maiores primeiro */
     g_autoptr(GPtrArray) txs = in_range(f->from, f->to);
@@ -429,7 +431,11 @@ static GtkWidget *flow_card(Flow fl) {
         out->color[out->n] = FLOW_COLOR(out->n + 1);
         out->n++;
     }
-    Cents left = MAX(0, fl.income - fl.expense);
+    /* "Para onde foi › Metas" (Android 1.7): o que foi guardado em metas saiu da conta, mas não é despesa */
+    GoalMoves gm = goal_moves(txs);
+    Cents gnet = MAX(0, goal_moves_net(gm));
+    if (gnet > 0 && out->n < 63) { out_names[out->n] = "Guardado em metas"; out->v[out->n] = gnet; out->color[out->n] = pal->goal; out->n++; }
+    Cents left = MAX(0, fl.income - fl.expense - gnet);
     if (left > 0) { out_names[out->n] = "Sobrou"; out->v[out->n] = left; out->color[out->n] = pal->green; out->n++; }
     out->scale = scale;
     if (!out->n) {
@@ -498,16 +504,40 @@ static GtkWidget *kpis(Flow fl, int cols) {
     gtk_grid_set_column_homogeneous(GTK_GRID(g), TRUE);
     gtk_accessible_update_property(GTK_ACCESSIBLE(g), GTK_ACCESSIBLE_PROPERTY_LABEL, "Resumo do período", -1);
     GtkWidget *items[4];
-    items[0] = sum_box("arrow-upward", "Receitas", fl.income, "fin-money-big fin-green", ci);
-    items[1] = sum_box("arrow-downward", "Despesas", fl.expense, "fin-money-big fin-red", ce);
-    Cents res = flow_balance(fl);
-    g_autofree char *rt = app_hidden() ? NULL : result_text(fl);
-    items[2] = sum_box("account-balance-wallet", "Resultado do período", res, res < 0 ? "fin-money-big fin-red" : "fin-money-big fin-accent", rt);
-    Cents avg = 0;
-    int days = 0;
-    gboolean has_avg = daily_average(fl, &avg, &days);
-    g_autofree char *dt = has_avg ? g_strdup_printf(days == 1 ? "%d dia até agora" : "%d dias até agora", days) : g_strdup("O período ainda não começou");
-    items[3] = sum_box("calendar-month", "Gasto médio por dia", avg, "fin-money-big", dt);
+    items[0] = sum_box("income", "Receitas", fl.income, "fin-money-big fin-green", ci);
+    items[1] = sum_box("expense", "Despesas", fl.expense, "fin-money-big fin-red", ce);
+    /* resultado (Android 1.10/1.11): entrou − saiu − guardado em metas; a meta não é despesa, mas saiu da conta */
+    g_autoptr(GPtrArray) all = in_range(f->from, f->to);
+    Cents gnet = goal_moves_net(goal_moves(all));
+    Cents res = flow_balance(fl) - gnet;
+    g_autofree char *gv = gnet ? app_money(gnet > 0 ? gnet : -gnet) : NULL;
+    g_autofree char *rt = app_hidden() ? NULL
+        : gnet > 0 ? g_strdup_printf("%s guardados em metas (não entram nas despesas)", gv)
+        : gnet < 0 ? g_strdup_printf("%s retirados de metas", gv)
+        : result_text(fl);
+    items[2] = sum_box("account-balance-wallet", "Resultado até agora", res, res < 0 ? "fin-money-big fin-red" : "fin-money-big fin-green", rt);
+    /* mês atual ou futuro: o mesmo previsto do Início; com "Acumular saldo", o saldo acumulado; senão, o gasto médio */
+    Ym ym;
+    gboolean month = period_full_month(f->from, f->to, &ym);
+    if (APP->prefs->accumulate && f->to != DAY_NONE) {
+        Cents acc = balance_on(APP->state, f->to);
+        Cents carried = f->from != DAY_NONE ? balance_on(APP->state, f->from - 1) : 0;
+        g_autofree char *cv = app_money(carried);
+        g_autofree char *sub = f->from != DAY_NONE ? g_strdup_printf("%s vieram dos meses anteriores", cv) : NULL;
+        items[3] = sum_box("account-balance", "Saldo acumulado", acc, acc < 0 ? "fin-money-big fin-red" : "fin-money-big", sub);
+    } else if (month && ym >= day_ym(APP->today)) {
+        MonthTotals mt = totals_month(APP->state, ym, APP->today);
+        char d[6];
+        g_autofree char *lbl = g_strdup_printf("Saldo previsto em %s", day_br_short(ym_last(ym), d));
+        items[3] = sum_box("calendar-month", lbl, mt.closing, mt.closing < 0 ? "fin-money-big fin-red" : "fin-money-big fin-accent",
+                           "O mesmo cálculo do Início");
+    } else {
+        Cents avg = 0;
+        int days = 0;
+        gboolean has_avg = daily_average(fl, &avg, &days);
+        g_autofree char *dt = has_avg ? g_strdup_printf(days == 1 ? "%d dia até agora" : "%d dias até agora", days) : g_strdup("O período ainda não começou");
+        items[3] = sum_box("calendar-month", "Gasto médio por dia", avg, "fin-money-big", dt);
+    }
     for (int i = 0; i < 4; i++) {
         gtk_widget_set_valign(items[i], GTK_ALIGN_FILL);
         gtk_grid_attach(GTK_GRID(g), items[i], i % cols, i / cols, 1, 1);

@@ -1,0 +1,1 @@
+{"txs":[{"id":"a","kind":"expense","value":12.5,"date":"2026-11-02","desc":"Café","category":"Alimentação","paid":true,"accountId":"main","cardId":""}],"backupVersion":5}

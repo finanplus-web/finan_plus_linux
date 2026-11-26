@@ -163,7 +163,7 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
         g_object_set_data_full(G_OBJECT(row), "rec", g_strdup(t->recurring_id), g_free);
     } else if (!ops_can_toggle_paid(t)) {
         /* compra no cartão ou pagamento de fatura: não alterna pago/pendente */
-        GtkWidget *ic = w_icon(tx_is_card(t) ? "credit-card" : tx_is_goal(t) ? "savings" : tx_is_transfer(t) ? "swap-horiz" : "check", 20);
+        GtkWidget *ic = w_icon(tx_is_card(t) ? "credit-card" : tx_is_goal(t) ? "flag" : tx_is_transfer(t) ? "transfer" : "check", 20);
         gtk_widget_set_size_request(ic, 34, -1);
         gtk_widget_set_tooltip_text(ic, tx_is_card(t) ? "Compra no cartão: entra na fatura"
                                       : tx_is_goal(t) ? "Reserva para meta: não conta como despesa nem receita"
@@ -403,15 +403,44 @@ static void build_totals(void) {
     Pending p = period_pending(M.items);
     Cents bal = flow_balance(f), forecast = bal + p.to_receive - p.to_pay;
     gboolean has_pend = p.to_receive > 0 || p.to_pay > 0;
+    /* "Acumular saldo entre os meses" (Android 1.8): o saldo das contas ao fim do período (saldo inicial + o que
+     * sobrou dos meses anteriores) e o previsto até lá. Com busca ou filtro de tipo/situação, volta a ser só o período. */
+    const Filters *fl = &APP->filters;
+    gboolean filtered = (fl->query && *fl->query) || fl->kind >= 0 || fl->paid >= 0;
+    gboolean accumulate = APP->prefs->accumulate && fl->to != DAY_NONE && !filtered;
+    if (accumulate) {
+        bal = balance_on(APP->state, fl->to);
+        forecast = fl->to >= APP->today ? forecast_from_start(APP->state, fl->to, APP->today, TRUE) : bal;
+        has_pend = forecast != bal;
+    }
     GtkWidget *card = w_card("fin-flat");
     gtk_accessible_update_property(GTK_ACCESSIBLE(card), GTK_ACCESSIBLE_PROPERTY_LABEL, "Resumo do período", -1);
     GtkWidget *row = w_hbox(10);
     gtk_box_set_homogeneous(GTK_BOX(row), TRUE);
     w_add(row, sum_col("Receitas", f.income, "fin-money-mid fin-green", "a receber", p.to_receive, "caption fin-green", p.to_receive > 0));
     w_add(row, sum_col("Despesas", f.expense, "fin-money-mid fin-red", "a pagar", p.to_pay, "caption fin-red", p.to_pay > 0));
-    w_add(row, sum_col("Saldo", bal, bal < 0 ? "fin-money-mid fin-red" : "fin-money-mid", "previsto", forecast,
+    w_add(row, sum_col(accumulate ? "Saldo acumulado" : "Saldo", bal, bal < 0 ? "fin-money-mid fin-red" : "fin-money-mid", "previsto", forecast,
                        forecast < 0 ? "caption fin-red" : "caption fin-accent", has_pend));
     w_add(card, row);
+    /* reservas para meta no período: saem do saldo, mas não são despesa (Android 1.7) */
+    GoalMoves gm = goal_moves(M.items);
+    if (goal_moves_net(gm) != 0 && !app_hidden()) {
+        g_autofree char *gv = app_money(goal_moves_net(gm) > 0 ? goal_moves_net(gm) : -goal_moves_net(gm));
+        g_autofree char *gl = g_strdup_printf(goal_moves_net(gm) > 0 ? "%s guardados em metas · não entram nas despesas"
+                                                                     : "%s retirados de metas · não entram nas receitas", gv);
+        GtkWidget *l = w_label_wrap(gl, "fin-goal caption heading");
+        gtk_widget_set_margin_top(l, 6);
+        w_add(card, l);
+    }
+    if (APP->prefs->accumulate && filtered) {
+        GtkWidget *l = w_label_wrap("Com busca ou filtro, o saldo mostra só o que entrou e saiu no período.", "fin-muted caption");
+        gtk_widget_set_margin_top(l, 4);
+        w_add(card, l);
+    } else if (accumulate) {
+        GtkWidget *l = w_label_wrap("Saldo acumulado: soma o saldo inicial e o que sobrou dos meses anteriores (Ajustes › Lançamentos).", "fin-muted caption");
+        gtk_widget_set_margin_top(l, 4);
+        w_add(card, l);
+    }
     if (f.income > 0) {
         /* quanto das receitas as despesas levaram */
         GtkWidget *bar = w_level((double)f.expense / f.income, f.expense > f.income ? "over" : "red");

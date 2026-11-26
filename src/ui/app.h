@@ -105,6 +105,9 @@ void app_external_end(void);
 void app_unlocked(void);
 gboolean app_lock_enabled(void);
 
+/* backup automático: uma cópia por dia enquanto o app está aberto; [force] = "Fazer agora" */
+void app_auto_backup(gboolean force);
+
 /* cria a janela (sinal "activate" do GtkApplication) */
 void app_activate(GtkApplication *gapp);
 

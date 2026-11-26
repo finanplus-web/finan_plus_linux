@@ -202,7 +202,7 @@ static void header(Pen *p) {
     text(p, "FINAN+", M, 40, 10, 0xCCFFFFFF, TRUE, AL_LEFT, 0);
     text(p, "Relatório financeiro", M, 68, 24, WHITE, TRUE, AL_LEFT, 0);
     char a[11], b[11];
-    g_autofree char *per = g_strdup_printf("%s a %s · %d dia(s)", day_br(r->from, a), day_br(r->to, b), r->days);
+    g_autofree char *per = g_strdup_printf(r->days == 1 ? "%s a %s · %d dia" : "%s a %s · %d dias", day_br(r->from, a), day_br(r->to, b), r->days);
     text(p, per, M, 92, 12, WHITE, FALSE, AL_LEFT, 0);
     g_autoptr(GDateTime) now = g_date_time_new_now_local();
     Day today = day_today();
@@ -247,6 +247,20 @@ static void kpis(Pen *p) {
         text(p, vals[i], x + 10, p->y + 36, 12, INK, TRUE, AL_LEFT, w4 - 20);
     }
     p->y += 60;
+    /* "Acumular saldo entre os meses" ligada (Android 1.9): saldo anterior e saldo acumulado */
+    if (r->accumulate) {
+        double w2 = (CW - gap) / 2;
+        g_autofree char *ca = money(r->carried), *ac = money(r->accumulated);
+        const char *l2[2] = {"Saldo anterior (meses antes do período)", "Saldo acumulado (fim do período)"};
+        const char *v2[2] = {ca, ac};
+        for (int i = 0; i < 2; i++) {
+            double x = M + i * (w2 + gap);
+            rect(p, x, p->y, w2, 48, CARD, 10);
+            text(p, l2[i], x + 10, p->y + 17, 8, MUTED, FALSE, AL_LEFT, w2 - 20);
+            text(p, v2[i], x + 10, p->y + 36, 12, i == 1 && r->accumulated < 0 ? RED : INK, TRUE, AL_LEFT, w2 - 20);
+        }
+        p->y += 60;
+    }
 }
 
 /* Rosca com as 7 maiores categorias + "Outras", e legenda ao lado. */
@@ -386,11 +400,14 @@ static void month_chart(Pen *p) {
 
 static void month_table(Pen *p) {
     const Report *r = p->r;
-    Col cols[4] = {{"Mês", 160}, {"Receitas", 120}, {"Despesas", 120}, {"Saldo", CW - 400}};
-    table_header(p, cols, 4, 1);
+    /* com o saldo acumulado, uma coluna a mais: o saldo das contas ao fim de cada mês */
+    int nc = r->accumulate ? 5 : 4;
+    Col cols[5] = {{"Mês", r->accumulate ? 130 : 160}, {"Receitas", r->accumulate ? 100 : 120}, {"Despesas", r->accumulate ? 100 : 120},
+                   {"Saldo", r->accumulate ? 100 : CW - 400}, {"Acumulado", CW - 430}};
+    table_header(p, cols, nc, 1);
     for (guint i = 0; i < r->months->len; i++) {
         MonthRow *m = &g_array_index(r->months, MonthRow, i);
-        row_break(p, 18, cols, 4, 1);
+        row_break(p, 18, cols, nc, 1);
         double base = p->y + 11, x = M + 6;
         g_autofree char *my = br_month_year(m->ym);
         my[0] = g_ascii_toupper(my[0]);
@@ -402,6 +419,11 @@ static void month_table(Pen *p) {
         text(p, b, x + cols[2].w - 8, base, 9, RED, FALSE, AL_RIGHT, 0);
         x += cols[2].w;
         text(p, c, x + cols[3].w - 8, base, 9, m->income - m->expense < 0 ? RED : INK, TRUE, AL_RIGHT, 0);
+        if (r->accumulate) {
+            x += cols[3].w;
+            g_autofree char *acc = money(m->accumulated);
+            text(p, acc, x + cols[4].w - 8, base, 9, m->accumulated < 0 ? RED : ACCENT, TRUE, AL_RIGHT, 0);
+        }
         line(p, M, p->y + 17, W - M, p->y + 17);
         p->y += 18;
     }
@@ -523,7 +545,8 @@ static void layout(Pen *p, const AppState *s, gboolean include_txs) {
     accounts_and_goals(p);
 
     if (include_txs) {
-        g_autofree char *sub = g_strdup_printf("%u lançamento(s), incluindo pendentes. Pagamentos de fatura aparecem, mas não contam como despesa.", r->txs->len);
+        g_autofree char *sub = g_strdup_printf(r->txs->len == 1 ? "%u lançamento, incluindo pendentes. Pagamentos de fatura, reservas para meta e transferências aparecem, mas não contam como despesa."
+                                                                : "%u lançamentos, incluindo pendentes. Pagamentos de fatura, reservas para meta e transferências aparecem, mas não contam como despesa.", r->txs->len);
         section(p, "Lançamentos do período", sub, 60);
         if (!r->txs->len) note(p, "Nenhum lançamento no período.");
         else tx_table(p, s);
@@ -539,7 +562,12 @@ static void layout(Pen *p, const AppState *s, gboolean include_txs) {
 }
 
 gboolean pdf_report_render(const AppState *s, const char *path, Day from, Day to, gboolean include_txs, Day today, GError **error) {
-    Report *r = report_build(s, from, to, today);
+    return pdf_report_render_ext(s, path, from, to, include_txs, today, FALSE, error);
+}
+
+gboolean pdf_report_render_ext(const AppState *s, const char *path, Day from, Day to, gboolean include_txs, Day today,
+                               gboolean accumulate, GError **error) {
+    Report *r = report_build_ext(s, from, to, today, accumulate);
     if (!r) { g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Período inválido."); return FALSE; }
     /* 1ª passada: conta as páginas */
     cairo_surface_t *img = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 4, 4);

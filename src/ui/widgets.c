@@ -159,7 +159,9 @@ GtkWidget *w_icon_tile(const char *icon, const char *color, gboolean big) {
     gtk_widget_set_halign(box, GTK_ALIGN_CENTER);
     int sz = big ? 44 : 38;
     gtk_widget_set_size_request(box, sz, sz);
-    GtkWidget *i = w_icon(icon, big ? 22 : 20);
+    /* dentro de quadradinhos, o peso Duotone (como no Android 1.12) */
+    g_autofree char *duo = g_strconcat(icon, "-duo", NULL);
+    GtkWidget *i = w_icon(duo, big ? 22 : 20);
     gtk_widget_set_hexpand(i, TRUE);
     gtk_widget_set_halign(i, GTK_ALIGN_CENTER);
     w_add(box, i);
@@ -190,7 +192,10 @@ static const CatIcon CAT_ICONS[] = {
     {"spa", "|beleza|cuidados pessoais|estetica|"},
     {"receipt-long", "|impostos|taxas|tarifas|impostos e taxas|"},
     {"redeem", "|presentes|doacoes|presente|doacao|"},
-    {"account-balance", "|emprestimo|emprestimos|financiamento|banco|dividas|"},
+    {"debt", "|emprestimo|emprestimos|financiamento|financiamentos|dividas|divida|"},
+    {"account-balance", "|banco|"},
+    {"flag", "|metas|"},
+    {"transfer", "|transferencia|"},
     {"work", "|trabalho|adiantamento quinzenal|adiantamento|comissao|"},
 };
 
@@ -201,7 +206,8 @@ const char *category_color(const char *category) {
         {"home", "green"}, {"favorite", "red"}, {"fitness-center", "red"}, {"theaters", "purple"}, {"subscriptions", "purple"},
         {"school", "teal"}, {"more-horiz", "gray"}, {"payments", "green"}, {"attach-money", "green"}, {"savings", "teal"},
         {"pets", "yellow"}, {"checkroom", "purple"}, {"shopping-bag", "purple"}, {"spa", "red"}, {"receipt-long", "yellow"},
-        {"redeem", "red"}, {"account-balance", "blue"}, {"work", "blue"}, {"credit-card", "purple"},
+        {"redeem", "red"}, {"debt", "blue"}, {"account-balance", "blue"}, {"work", "blue"}, {"credit-card", "card"},
+        {"flag", "goal"}, {"transfer", "gray"},
     };
     const char *ic = category_icon(category);
     if (ic) for (guint i = 0; i < G_N_ELEMENTS(C); i++) if (strcmp(C[i].icon, ic) == 0) return C[i].color;
@@ -227,7 +233,7 @@ GtkWidget *w_category_glyph(const char *category) {
     gtk_widget_set_size_request(box, 42, 42);
     const char *ic = category_icon(category);
     GtkWidget *inner;
-    if (ic) inner = w_icon(ic, 20);
+    if (ic) { g_autofree char *duo = g_strconcat(ic, "-duo", NULL); inner = w_icon(duo, 20); }
     else {
         /* sem ícone próprio: a inicial do nome (ex.: "E" de Empréstimo) */
         g_autofree char *t = g_strstrip(g_strdup(category));

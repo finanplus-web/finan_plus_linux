@@ -7,6 +7,7 @@
  * (1.4.0); cada cartão vazio explica o que aparece ali, em vez de sumir.
  */
 #include "pages.h"
+#include "core/totals.h"
 #include "charts.h"
 #include "widgets.h"
 #include "core/finance.h"
@@ -80,8 +81,11 @@ static GtkWidget *hero(void) {
     const AppState *s = APP->state;
     Ym ym = day_ym(APP->today);
     Flow f = month_flow(s, ym);
-    Pending pend = period_month_pending(s, ym, APP->today);
-    Cents bal = current_balance(s), fut = future_balance(s, ym_last(ym), APP->today);
+    /* glossário único (Android 1.11): o mesmo previsto, a receber e a pagar em todas as telas; atrasados entram no
+     * "a pagar" do mês atual e os aportes planejados das metas que faltam saem do previsto */
+    MonthTotals mt = totals_month(s, ym, APP->today);
+    Pending pend = {mt.to_receive, mt.to_pay};
+    Cents bal = current_balance(s), fut = mt.closing;
     GtkWidget *c = w_card("fin-hero");
 
     GtkWidget *top = w_hbox(8);
@@ -89,7 +93,7 @@ static GtkWidget *hero(void) {
     GtkWidget *dl = w_label(date, "heading");
     gtk_widget_set_hexpand(dl, TRUE);
     w_add(top, dl);
-    GtkWidget *priv = w_hbox(4); /* selo "Privado" com o ícone de escudo (Material Symbols) */
+    GtkWidget *priv = w_hbox(4); /* selo "Privado" com o ícone de escudo */
     gtk_widget_add_css_class(priv, "fin-badge");
     gtk_widget_add_css_class(priv, "green");
     gtk_widget_set_valign(priv, GTK_ALIGN_CENTER);
@@ -109,20 +113,29 @@ static GtkWidget *hero(void) {
     char until[11];
     g_autofree char *fl = g_strdup_printf("Saldo previsto até %s", day_br(ym_last(ym), until));
     GtkWidget *fb = stat_box_full(NULL, fl, fut, fut < 0 ? "fin-money-big fin-red" : "fin-money-big fin-accent", NULL, 0, NULL);
-    w_add(fb, w_label_wrap("Considera valores pendentes, faturas e recorrências até esta data.", "fin-muted caption"));
+    w_add(fb, w_label_wrap(mt.goals_planned > 0 ? "Considera pendências, faturas, recorrências e os aportes planejados das metas até esta data."
+                                                 : "Considera valores pendentes, faturas e recorrências até esta data.", "fin-muted caption"));
     gtk_flow_box_append(GTK_FLOW_BOX(r1), fb);
     w_add(c, r1);
     /* como o previsto foi calculado (só quando a conta fecha com os números da tela) */
-    if (!app_hidden() && (pend.to_receive > 0 || pend.to_pay > 0) && bal + pend.to_receive - pend.to_pay == fut) {
-        g_autofree char *b0 = money_fmt(bal), *b1 = money_fmt(pend.to_receive), *b2 = money_fmt(pend.to_pay);
-        g_autofree char *ex = g_strdup_printf("Hoje %s + %s a receber − %s a pagar", b0, b1, b2);
+    if (!app_hidden() && (pend.to_receive > 0 || pend.to_pay > 0 || mt.goals_planned > 0) &&
+        bal + pend.to_receive - pend.to_pay - mt.goals_planned == fut) {
+        g_autofree char *b0 = money_fmt(bal), *b1 = money_fmt(pend.to_receive), *b2 = money_fmt(pend.to_pay), *b3 = money_fmt(mt.goals_planned);
+        g_autofree char *ex = mt.goals_planned > 0 ? g_strdup_printf("Hoje %s + %s a receber − %s a pagar − %s reservado para metas", b0, b1, b2, b3)
+                                                   : g_strdup_printf("Hoje %s + %s a receber − %s a pagar", b0, b1, b2);
         w_add(c, w_label_wrap(ex, "fin-muted caption"));
+    }
+    /* guardado em metas no mês: já saiu do saldo, mas não é despesa (Android 1.7) */
+    if (mt.goals_saved > 0) {
+        g_autofree char *gv = app_money(mt.goals_saved);
+        g_autofree char *gl = g_strdup_printf("%s guardados em metas neste mês · não entra nas despesas", gv);
+        w_add(c, w_label_wrap(gl, "fin-goal caption heading"));
     }
     /* o que ainda falta entrar e sair no mês; realizado e pendente ficam separados (em despesas, sem
      * porcentagem: faturas abertas podem corresponder a compras já lançadas e contariam duas vezes) */
     GtkWidget *r2 = stat_row();
-    gtk_flow_box_append(GTK_FLOW_BOX(r2), pending_box("arrow-upward", "Falta receber", pend.to_receive, f.income, "recebido", "fin-green", TRUE));
-    gtk_flow_box_append(GTK_FLOW_BOX(r2), pending_box("arrow-downward", "Falta pagar", pend.to_pay, f.expense, "pago", "fin-red", FALSE));
+    gtk_flow_box_append(GTK_FLOW_BOX(r2), pending_box("income", "Falta receber", pend.to_receive, f.income, "recebido", "fin-green", TRUE));
+    gtk_flow_box_append(GTK_FLOW_BOX(r2), pending_box("expense", "Falta pagar", pend.to_pay, f.expense, "pago", "fin-red", FALSE));
     w_add(c, r2);
 
     /* a barra de uso das receitas só aparece quando já entrou alguma receita */
@@ -312,7 +325,7 @@ static GtkWidget *balance_card(void) {
     Cents *v = g_new0(Cents, n);
     balance_series(s, first, APP->today, v);
     /* depois de hoje: o saldo previsto de cada dia (pendências, faturas e recorrências até ele) */
-    for (int i = solid + 1; i < n; i++) v[i] = future_balance(s, first + i, APP->today);
+    for (int i = solid + 1; i < n; i++) v[i] = totals_forecast_at(s, first + i, APP->today);
     const char *labels[31] = {0};
     char lb[4][4];
     int marks[4] = {0, 9, 19, n - 1};
@@ -496,7 +509,7 @@ static GtkWidget *goals_card(void) {
         g_autofree char *pt = app_hidden() ? g_strdup("••%") : g_strdup_printf("%s%%", pct);
         w_add(top, w_label(pt, "fin-green heading"));
         w_add(b, top);
-        w_add(b, w_level(frac, "green"));
+        w_add(b, w_level(frac, "goal"));
         g_autofree char *sv = app_money(g->saved), *tg = app_money(g->target);
         g_autofree char *info = g_strdup_printf("%s de %s", sv, tg);
         w_add(b, w_label(info, "fin-muted caption"));

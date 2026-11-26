@@ -8,6 +8,7 @@
 #include "widgets.h"
 #include "core/finance.h"
 #include "core/transfers.h"
+#include "core/txform.h"
 #include <string.h>
 
 /* ---------------------------------------------------------------- moldura comum */
@@ -187,10 +188,14 @@ static const char *card_at(int i) {
     return ((Card *)a->pdata[i >= 0 && (guint)i < a->len ? i : 0])->id;
 }
 
-/* categorias do tipo + a atual, se não estiver na lista */
+/* categorias do tipo + a atual, se não estiver na lista. "Cartão de Crédito" e "Limite Especial" não aparecem:
+ * cartão é forma de pagamento ("Pagar com") e limite especial é da conta (Android 1.11) */
 static GPtrArray *cats_with(Kind k, const char *current) {
     GPtrArray *a = g_ptr_array_new();
-    for (guint i = 0; i < APP->state->cats[k]->len; i++) g_ptr_array_add(a, APP->state->cats[k]->pdata[i]);
+    for (guint i = 0; i < APP->state->cats[k]->len; i++) {
+        const char *c = APP->state->cats[k]->pdata[i];
+        if (!txform_is_payment_like(c) || (current && !strcmp(c, current))) g_ptr_array_add(a, (gpointer)c);
+    }
     if (current && *current && !app_has_category(APP->state, k, current)) g_ptr_array_add(a, (gpointer)current);
     return a;
 }
@@ -368,7 +373,7 @@ static void tx_delete_confirmed(gpointer p) {
     DelCtx *d = p;
     int later = ops_later_parcels(APP->state, d->id);
     if (!later) { tx_delete_only(d); return; }
-    g_autofree char *msg = g_strdup_printf("Excluir também as %d parcela(s) seguinte(s)?", later);
+    g_autofree char *msg = later == 1 ? g_strdup("Excluir também a parcela seguinte?") : g_strdup_printf("Excluir também as %d parcelas seguintes?", later);
     DelCtx *n = g_new0(DelCtx, 1);
     n->id = g_strdup(d->id);
     n->f = d->f;
@@ -783,7 +788,7 @@ void editor_transfer(const char *transfer_id) {
     g_autoptr(GPtrArray) an = account_names();
     e->from = row_combo("De", (const char *const *)an->pdata, (int)an->len, from);
     e->to = row_combo("Para", (const char *const *)an->pdata, (int)an->len, to);
-    GtkWidget *swap = gtk_button_new_from_icon_name("fin-swap-horiz-symbolic");
+    GtkWidget *swap = gtk_button_new_from_icon_name("fin-transfer-symbolic");
     gtk_widget_set_valign(swap, GTK_ALIGN_CENTER);
     gtk_widget_add_css_class(swap, "flat");
     gtk_widget_set_tooltip_text(swap, "Inverter as contas");

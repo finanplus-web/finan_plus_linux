@@ -16,6 +16,9 @@
 #include "core/totals.h"
 #include "core/debts.h"
 #include "core/txform.h"
+#include "core/backup_crypto.h"
+#include "core/autobackup.h"
+#include <glib/gstdio.h>
 #include <string.h>
 
 static Day D(const char *s) {
@@ -885,6 +888,88 @@ static void test_recent_and_suggestions(void) {
     g_assert_cmpstr(k2, ==, "");
 }
 
+/* ================================================================ backup criptografado e automático (BackupCryptoTest) */
+
+#ifndef BACKUP_FIXTURES
+#define BACKUP_FIXTURES "tests/fixtures/backup"
+#endif
+
+static void test_crypto_roundtrip(void) {
+    const char *plain = "{\"txs\":[],\"backupVersion\":5,\"nome\":\"Café ☕\"}";
+    g_autoptr(GError) e = NULL;
+    g_autofree char *enc = backup_crypto_encrypt(plain, "segredo123", 100000, &e);
+    g_assert_no_error(e);
+    g_assert_true(backup_crypto_is_encrypted(enc, -1));
+    g_assert_false(contains(enc, "Café"));
+    g_autofree char *dec = backup_crypto_decrypt(enc, -1, "segredo123", &e);
+    g_assert_no_error(e);
+    g_assert_cmpstr(dec, ==, plain);
+    g_autofree char *bad = backup_crypto_decrypt(enc, -1, "errada", &e);
+    g_assert_null(bad);
+    g_assert_cmpstr(e->message, ==, "Senha incorreta ou arquivo danificado");
+    g_clear_error(&e);
+    g_assert_false(backup_crypto_is_encrypted("{\"txs\":[]}", -1));
+    g_assert_null(backup_crypto_decrypt("{\"format\":\"finanplus-backup-cifrado\",\"v\":2}", -1, "x", &e));
+    g_assert_cmpstr(e->message, ==, "Este backup foi feito por uma versão mais nova do Finan+");
+}
+
+/* cópia feita com o mesmo algoritmo do Android (javax.crypto, PBKDF2WithHmacSHA256 + AES/GCM/NoPadding) */
+static void test_crypto_from_android(void) {
+    g_autofree char *enc = NULL, *plain = NULL;
+    g_assert_true(g_file_get_contents(BACKUP_FIXTURES "/cifrado-java.json", &enc, NULL, NULL));
+    g_assert_true(g_file_get_contents(BACKUP_FIXTURES "/cifrado-java.plain.json", &plain, NULL, NULL));
+    g_autoptr(GError) e = NULL;
+    g_autofree char *dec = backup_crypto_decrypt(enc, -1, "senha-de-teste", &e);
+    g_assert_no_error(e);
+    g_assert_cmpstr(dec, ==, plain);
+}
+
+static void test_autobackup(void) {
+    g_autofree char *dir = g_dir_make_tmp("finan-auto-XXXXXX", NULL);
+    g_autoptr(AppState) s = app_state_new();
+    add_tx(s, "a", KIND_EXPENSE, 100, "2026-11-01", "Café", "Alimentação", TRUE, "main", NULL);
+    /* um arquivo qualquer da pasta nunca é tocado */
+    g_autofree char *other = g_build_filename(dir, "finan-plus-auto-notas.json", NULL);
+    g_assert_true(g_file_set_contents(other, "x", 1, NULL));
+    for (int i = 0; i < 10; i++) {
+        g_autoptr(GError) e = NULL;
+        g_autofree char *name = autobackup_write(s, dir, "segredo123", 7, D("2026-11-01") + i, "teste", &e);
+        g_assert_no_error(e);
+        g_assert_true(autobackup_is_name(name));
+    }
+    int count = 0;
+    g_autoptr(GDir) d = g_dir_open(dir, 0, NULL);
+    const char *n;
+    while ((n = g_dir_read_name(d))) if (autobackup_is_name(n)) count++;
+    g_assert_cmpint(count, ==, 7);
+    g_assert_true(g_file_test(other, G_FILE_TEST_EXISTS));
+    g_autofree char *oldest = g_build_filename(dir, "finan-plus-auto-2026-11-03.json", NULL);
+    g_autofree char *kept = g_build_filename(dir, "finan-plus-auto-2026-11-04.json", NULL);
+    g_assert_false(g_file_test(oldest, G_FILE_TEST_EXISTS));
+    g_assert_true(g_file_test(kept, G_FILE_TEST_EXISTS));
+    /* a cópia abre com a senha e é um backup completo, marcado como automático */
+    g_autofree char *enc = NULL;
+    g_assert_true(g_file_get_contents(kept, &enc, NULL, NULL));
+    g_autofree char *json = backup_crypto_decrypt(enc, -1, "segredo123", NULL);
+    g_assert_true(contains(json, "\"auto\":true"));
+    g_autoptr(AppState) back = backup_parse(json, -1, NULL, NULL);
+    g_assert_cmpuint(back->txs->len, ==, 1);
+    /* app vazio: grava a do dia, mas não apaga as anteriores */
+    g_autoptr(AppState) empty = app_state_new();
+    for (int i = 0; i < 3; i++) g_free(autobackup_write(empty, dir, "segredo123", 7, D("2026-12-01") + i, "teste", NULL));
+    count = 0;
+    g_dir_rewind(d);
+    while ((n = g_dir_read_name(d))) if (autobackup_is_name(n)) count++;
+    g_assert_cmpint(count, ==, 10);
+    g_autoptr(GError) e = NULL;
+    g_assert_null(autobackup_write(s, "/nao/existe", "segredo123", 7, D("2026-12-01"), "teste", &e));
+    g_assert_false(autobackup_is_name("finan-plus-auto-2026-1-01.json"));
+    /* limpeza */
+    g_dir_rewind(d);
+    while ((n = g_dir_read_name(d))) { g_autofree char *p = g_build_filename(dir, n, NULL); g_unlink(p); }
+    g_rmdir(dir);
+}
+
 int main(int argc, char **argv) {
     g_test_init(&argc, &argv, NULL);
     g_test_add_func("/transfer/not-flow", test_transfer_not_flow);
@@ -931,5 +1016,8 @@ int main(int argc, char **argv) {
     g_test_add_func("/accumulated/report", test_accumulated_report);
     g_test_add_func("/txform/amount-input", test_amount_input);
     g_test_add_func("/txform/recent-and-suggestions", test_recent_and_suggestions);
+    g_test_add_func("/backup-crypto/roundtrip", test_crypto_roundtrip);
+    g_test_add_func("/backup-crypto/from-android", test_crypto_from_android);
+    g_test_add_func("/autobackup/write-and-prune", test_autobackup);
     return g_test_run();
 }

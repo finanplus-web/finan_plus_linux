@@ -41,6 +41,10 @@ void editor_tx(Kind kind, const char *id);
 /* lançamento novo já com a data [on] (calendário); numa data futura começa pendente */
 void editor_tx_on(Kind kind, Day on, const char *id);
 void editor_goal(const char *id);
+/* despesas compartilhadas (shared_ui.c): formulário (NULL = nova), detalhe e cartão de Meu dinheiro */
+void editor_shared(const char *id);
+void shared_open(const char *id);
+GtkWidget *shared_card(void);
 /* transferência entre contas: NULL = nova */
 void editor_transfer(const char *transfer_id);
 /* meta nova já preenchida (vinda do simulador "E se…?"); valores 0/NULL ficam em branco */
@@ -66,6 +70,11 @@ void data_export_csv(void);
 void data_export_backup(void);
 void data_restore_backup(void);
 void data_wipe(void);
+/* backup automático (Ajustes › Dados) */
+void data_auto_backup_enable(void);
+void data_auto_backup_change_folder(void);
+void data_auto_backup_change_password(void);
+void data_auto_backup_disable(void);
 void report_pdf_dialog(Day from, Day to);
 /* escreve o PDF; FALSE + error se falhar */
 gboolean pdf_report_write(const char *path, Day from, Day to, gboolean include_txs, GError **error);

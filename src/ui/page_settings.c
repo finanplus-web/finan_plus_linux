@@ -6,6 +6,7 @@
  * abrem e fecham com o botão + / −.
  */
 #include "pages.h"
+#include "core/autobackup.h"
 #include "charts.h"
 #include "theme.h"
 #include "widgets.h"
@@ -68,6 +69,7 @@ static const SectionInfo SECTIONS[] = {
     {"aparencia", "palette", "blue", "Personalização"},
     {"avisos", "notifications", "orange", "Personalização"},
     {"assistente", "auto-awesome", "purple", "Planejamento e automação"},
+    {"lancamentos", "receipt-long", "blue", "Planejamento e automação"},
     {"recorrencias", "repeat", "teal", "Planejamento e automação"},
     {"privacidade", "shield", "green", "Segurança e dados"},
     {"dados", "database", "yellow", "Segurança e dados"},
@@ -130,10 +132,13 @@ static void set_density(GtkToggleButton *b, gpointer v) {
     app_apply_density();
 }
 
+static void set_glass(gboolean v) { APP->prefs->glass = v; save_prefs(); theme_set_glass(v); theme_apply(APP->state->theme); later_refresh(); }
+
 static GtkWidget *appearance(void) {
     GtkWidget *content;
     static const char *const DENS[] = {"Padrão", "Compacta", "Confortável"};
-    g_autofree char *sum = g_strdup_printf("Tema: %s · densidade %s", theme_label(APP->state->theme), DENS[APP->prefs->density]);
+    g_autofree char *sum = g_strdup_printf("Tema: %s · densidade %s%s", theme_label(APP->state->theme), DENS[APP->prefs->density],
+                                           APP->prefs->glass ? " · efeito vidro" : "");
     GtkWidget *card = section_begin("aparencia", "Aparência", sum, &content);
     w_add(content, w_label("Tema", "heading"));
     GtkWidget *grid = gtk_grid_new();
@@ -187,6 +192,13 @@ static GtkWidget *appearance(void) {
     }
     w_add(row, seg);
     w_add(content, row);
+
+    /* efeito vidro (Android 1.8): cartões translúcidos sobre brilhos suaves, em todos os temas; só neste computador */
+    GtkWidget *gl = boxed();
+    gtk_widget_set_margin_top(gl, 8);
+    switch_row(gl, "Efeito vidro", "Cartões translúcidos sobre brilhos suaves nas cores do tema. Nos temas escuros e OLED, bem mais discreto. Vale só neste computador.",
+               APP->prefs->glass, set_glass);
+    w_add(content, gl);
     return card;
 }
 
@@ -338,7 +350,7 @@ static GtkWidget *assistant(void) {
     switch_row(list, "Perguntas rápidas", "Ex.: “quanto gastei com mercado em agosto?”", pr->assist_ask, set_a_ask);
     w_add(content, list);
     if (pr->dismissed_tips->len) {
-        g_autofree char *l = g_strdup_printf("Restaurar %u dica(s) dispensada(s)", pr->dismissed_tips->len);
+        g_autofree char *l = pr->dismissed_tips->len == 1 ? g_strdup("Restaurar 1 dica dispensada") : g_strdup_printf("Restaurar %u dicas dispensadas", pr->dismissed_tips->len);
         GtkWidget *p = w_pill(l, restore_tips, NULL, NULL);
         gtk_widget_set_halign(p, GTK_ALIGN_START);
         w_add(content, p);
@@ -355,7 +367,8 @@ static GtkWidget *assistant(void) {
                    "corrigir a categoria de um lançamento corrige o aprendizado, e apagar o lançamento apaga o que ele ensinou."));
     for (int k = 1; k >= 0; k--) {
         Categorizer *c = categorizer_build(APP->state, (Kind)k, APP->dict);
-        g_autofree char *eb = g_strdup_printf("%s · %d lançamento(s) analisado(s)", k == KIND_EXPENSE ? "Despesas" : "Receitas", categorizer_training_size(c));
+        int nt = categorizer_training_size(c);
+        g_autofree char *eb = g_strdup_printf(nt == 1 ? "%s · %d lançamento analisado" : "%s · %d lançamentos analisados", k == KIND_EXPENSE ? "Despesas" : "Receitas", nt);
         w_add(lb, w_eyebrow(eb));
         g_autoptr(GPtrArray) words = categorizer_learned_words(c, 6);
         if (!words->len) w_add(lb, note("Ainda não há palavras repetidas o suficiente."));
@@ -385,14 +398,33 @@ static GtkWidget *assistant(void) {
 
 /* ---------------------------------------------------------------- recorrências */
 
+/* ---------------------------------------------------------------- lançamentos */
+
+static void set_accumulate(gboolean v) { APP->prefs->accumulate = v; save_prefs(); later_refresh(); }
+
+static GtkWidget *moves_settings(void) {
+    GtkWidget *content;
+    GtkWidget *card = section_begin("lancamentos", "Lançamentos",
+                                    APP->prefs->accumulate ? "Saldo acumulado entre os meses" : "Cada mês mostra só o que entrou e saiu nele", &content);
+    GtkWidget *list = boxed();
+    switch_row(list, "Acumular saldo entre os meses",
+               "Ligada, o saldo de cada mês em Lançamentos e no Resumo soma o saldo inicial e o que sobrou dos meses anteriores. "
+               "Desligada, cada mês mostra só o que entrou e saiu nele.",
+               APP->prefs->accumulate, set_accumulate);
+    w_add(content, list);
+    w_add(content, note("Receitas e despesas continuam sendo só as do período. A opção vale só neste computador e não vai para o backup."));
+    return card;
+}
+
 static void edit_rec(gpointer id) { editor_recurring(id); }
 static void new_rec(gpointer u) { (void)u; editor_recurring(NULL); }
 
 static GtkWidget *recurring(void) {
     const AppState *s = APP->state;
     GtkWidget *content;
-    g_autofree char *sum = s->recurring->len ? g_strdup_printf("%u recorrência(s) cadastrada(s)", s->recurring->len)
-                                             : g_strdup("Nenhuma recorrência cadastrada");
+    g_autofree char *sum = s->recurring->len == 1 ? g_strdup("1 recorrência cadastrada")
+                         : s->recurring->len ? g_strdup_printf("%u recorrências cadastradas", s->recurring->len)
+                         : g_strdup("Nenhuma recorrência cadastrada");
     GtkWidget *card = section_begin("recorrencias", "Recorrências", sum, &content);
     GtkWidget *nb = w_pill("＋ Nova", new_rec, NULL, NULL);
     gtk_widget_set_halign(nb, GTK_ALIGN_END);
@@ -423,9 +455,24 @@ static void d_pdf(gpointer u) { (void)u; report_pdf_dialog(APP->filters.from, AP
 static void d_restore(gpointer u) { (void)u; data_restore_backup(); }
 static void d_wipe(gpointer u) { (void)u; data_wipe(); }
 
+static void ab_enable(gpointer u) { (void)u; data_auto_backup_enable(); }
+static void ab_folder(gpointer u) { (void)u; data_auto_backup_change_folder(); }
+static void ab_password(gpointer u) { (void)u; data_auto_backup_change_password(); }
+static void ab_disable(gpointer u) { (void)u; data_auto_backup_disable(); }
+static void ab_now(gpointer u) { (void)u; app_auto_backup(TRUE); }
+static void on_keep(GObject *o, GParamSpec *ps, gpointer u) {
+    (void)ps; (void)u;
+    int i = row_combo_get(GTK_WIDGET(o));
+    if (i < 0 || i > 3) return;
+    APP->prefs->auto_backup_keep = AUTOBACKUP_KEEP_OPTIONS[i];
+    save_prefs();
+}
+
 static GtkWidget *data(void) {
     GtkWidget *content;
-    GtkWidget *card = section_begin("dados", "Dados", "Backup, restauração, CSV e relatório em PDF", &content);
+    GtkWidget *card = section_begin("dados", "Dados", APP->prefs->auto_backup_dir && *APP->prefs->auto_backup_dir
+                                    ? "Backup automático ligado · restauração, CSV e relatório em PDF"
+                                    : "Backup, restauração, CSV e relatório em PDF", &content);
     GtkWidget *g = gtk_grid_new();
     gtk_grid_set_column_spacing(GTK_GRID(g), 8);
     gtk_grid_set_row_spacing(GTK_GRID(g), 8);
@@ -438,6 +485,53 @@ static GtkWidget *data(void) {
     w_add(content, g);
     w_add(content, note("O backup JSON é compatível com o Finan+ web e com o app Android: dá para levar os dados de um para o outro. "
                         "O backup não é criptografado: guarde em local seguro."));
+
+    /* backup automático (Android 1.7): uma cópia por dia, criptografada com senha, numa pasta escolhida */
+    Prefs *p = APP->prefs;
+    gboolean on = p->auto_backup_dir && *p->auto_backup_dir;
+    GtkWidget *ab = w_vbox(8);
+    gtk_widget_set_margin_top(ab, 10);
+    w_add(ab, w_label("Backup automático", "heading"));
+    GtkWidget *list = boxed();
+    if (!on) {
+        GtkWidget *r = manage_row(list, "Desligado", "Uma cópia por dia, criptografada com senha, numa pasta que você escolhe: do computador, de um pendrive ou sincronizada (Syncthing, Nextcloud, Google Drive).");
+        suffix(r, w_pill("Escolher pasta e ligar", ab_enable, NULL, NULL));
+        w_add(ab, list);
+        w_add(ab, note("As cópias abrem também no app Android (Ajustes › Dados › Restaurar), com a mesma senha."));
+    } else {
+        g_autofree char *base = g_path_get_basename(p->auto_backup_dir);
+        GtkWidget *r = manage_row(list, base, p->auto_backup_dir);
+        adw_action_row_add_prefix(ADW_ACTION_ROW(r), w_icon("folder", 20));
+        suffix(r, w_pill("Trocar pasta", ab_folder, NULL, NULL));
+        g_autofree char *last = NULL;
+        if (p->auto_backup_last > 0 && p->auto_backup_file && *p->auto_backup_file) {
+            g_autoptr(GDateTime) dt = g_date_time_new_from_unix_local(p->auto_backup_last / G_USEC_PER_SEC);
+            g_autofree char *when = g_date_time_format(dt, "%d/%m/%Y às %H:%M");
+            last = g_strdup_printf("%s · %s", when, p->auto_backup_file);
+        } else last = g_strdup("Ainda nenhuma cópia");
+        GtkWidget *lr = manage_row(list, "Última cópia", last);
+        suffix(lr, w_pill("Fazer agora", ab_now, NULL, NULL));
+        static const char *const KEEP[] = {"7 cópias", "14 cópias", "30 cópias", "60 cópias"};
+        int ksel = 1;
+        for (int i = 0; i < 4; i++) if (AUTOBACKUP_KEEP_OPTIONS[i] == p->auto_backup_keep) ksel = i;
+        GtkWidget *kr = row_combo("Guardar as últimas", KEEP, 4, ksel);
+        adw_action_row_set_subtitle(ADW_ACTION_ROW(kr), "As mais antigas com o nome finan-plus-auto-… são apagadas; o resto da pasta não é tocado.");
+        g_signal_connect(kr, "notify::selected", G_CALLBACK(on_keep), NULL);
+        gtk_list_box_append(GTK_LIST_BOX(list), kr);
+        w_add(ab, list);
+        if (p->auto_backup_error && *p->auto_backup_error) {
+            GtkWidget *er = w_label_wrap(p->auto_backup_error, "fin-red caption");
+            w_add(ab, er);
+        }
+        GtkWidget *btns = w_hbox(8);
+        w_add(btns, w_pill("Trocar senha", ab_password, NULL, NULL));
+        GtkWidget *off = w_button("Desligar", NULL, "fin-pill danger", ab_disable, NULL, NULL);
+        w_add(btns, off);
+        w_add(ab, btns);
+        w_add(ab, note("Uma cópia por dia enquanto o Finan+ estiver aberto (e logo ao abrir). Para restaurar, use Restaurar e digite a senha. "
+                       "Trocar a senha vale para as próximas cópias; as antigas continuam abrindo com a senha antiga."));
+    }
+    w_add(content, ab);
     return card;
 }
 
@@ -515,8 +609,8 @@ static GtkWidget *about(void) {
                                 "Este programa é distribuído na esperança de que seja útil, mas SEM NENHUMA GARANTIA, nem mesmo a garantia implícita de "
                                 "COMERCIABILIDADE ou de ADEQUAÇÃO A UMA FINALIDADE ESPECÍFICA. Veja a licença completa para mais detalhes.", "fin-muted"));
     w_add(content, license_block("/com/finanplus/FinanPlus/LICENSE", "licença completa (GNU GPL v3)"));
-    w_add(content, w_label_wrap("Ícones: Material Symbols, © Google, sob a Licença Apache 2.0 (compatível com a GPL v3).", "fin-muted"));
-    w_add(content, license_block("/com/finanplus/FinanPlus/APACHE-2.0.txt", "licença dos ícones (Apache 2.0)"));
+    w_add(content, w_label_wrap("Ícones: Phosphor Icons, © Phosphor Icons, sob a licença MIT (compatível com a GPL v3).", "fin-muted"));
+    w_add(content, license_block("/com/finanplus/FinanPlus/PHOSPHOR-MIT.txt", "licença dos ícones (MIT)"));
     GtkWidget *ab = w_pill("Sobre o Finan+ e bibliotecas", about_dialog, NULL, NULL);
     gtk_widget_set_halign(ab, GTK_ALIGN_START);
     w_add(content, ab);
@@ -581,7 +675,7 @@ void page_settings_refresh(void) {
     w_add(body, head);
     split_mode = APP->layout != LAYOUT_NARROW;
     /* na ordem de SECTIONS */
-    GtkWidget *cards[N_SECTIONS] = {appearance(), notifications(), assistant(), recurring(), privacy(), data(), about()};
+    GtkWidget *cards[N_SECTIONS] = {appearance(), notifications(), assistant(), moves_settings(), recurring(), privacy(), data(), about()};
     if (split_mode) {
         int sel = section_index(selected ? selected : "aparencia");
         GtkWidget *split = w_hbox(18);
