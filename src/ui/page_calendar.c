@@ -130,9 +130,10 @@ static GtkWidget *day_cell(Day d, const CalDay *day) {
         w_add(top, wi);
     }
     w_add(v, top);
-    if (day && !app_hidden() && (day->income || day->expense)) {
-        g_autofree char *val = cal_signed(cal_day_net(day));
-        GtkWidget *vl = w_label(val, cal_day_net(day) < 0 ? "fin-cal-v fin-red" : "fin-cal-v fin-green");
+    if (day && !app_hidden() && day->has_flow) {
+        /* total do dia sem as reservas para meta (como na lista) */
+        g_autofree char *val = cal_signed(cal_day_flow_net(day));
+        GtkWidget *vl = w_label(val, cal_day_flow_net(day) < 0 ? "fin-cal-v fin-red" : "fin-cal-v fin-green");
         /* o valor do dia nunca é cortado com "…": cal_signed já é curto */
         gtk_label_set_ellipsize(GTK_LABEL(vl), PANGO_ELLIPSIZE_NONE);
         w_add(v, vl);
@@ -142,6 +143,7 @@ static GtkWidget *day_cell(Day d, const CalDay *day) {
         if (day->marks & MARK_INCOME) w_add(dots, dot("income"));
         if (day->marks & MARK_EXPENSE) w_add(dots, dot("expense"));
         if (day->marks & MARK_CARD) w_add(dots, dot("card"));
+        if (day->marks & MARK_GOAL) w_add(dots, dot("goal"));
         w_add(v, dots);
     }
     gtk_button_set_child(GTK_BUTTON(b), v);
@@ -304,11 +306,13 @@ static GtkWidget *day_box(Day d, const CalDay *day) {
     w_add(c, w_title(title));
     GString *sub = g_string_new(n == 0 ? "Sem lançamentos" : n == 1 ? "1 lançamento" : NULL);
     if (n > 1) g_string_printf(sub, "%d lançamentos", n);
-    if (day && !app_hidden() && (day->income || day->expense)) {
-        Cents net = cal_day_net(day);
-        char buf[40];
+    char buf[40];
+    if (day && !app_hidden() && day->has_flow) {
+        Cents net = cal_day_flow_net(day);
         g_string_append_printf(sub, " · resultado das movimentações deste dia %s%s", net > 0 ? "+ " : net < 0 ? "− " : "", money_format(net < 0 ? -net : net, buf));
     }
+    if (day && !app_hidden() && day->goals)
+        g_string_append_printf(sub, day->goals > 0 ? " · %s guardados em metas" : " · %s retirados de metas", money_format(day->goals > 0 ? day->goals : -day->goals, buf));
     w_add(c, w_label(sub->str, "fin-muted"));
     g_string_free(sub, TRUE);
 

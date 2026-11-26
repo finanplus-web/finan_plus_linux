@@ -41,6 +41,8 @@ void editor_tx(Kind kind, const char *id);
 /* lançamento novo já com a data [on] (calendário); numa data futura começa pendente */
 void editor_tx_on(Kind kind, Day on, const char *id);
 void editor_goal(const char *id);
+/* transferência entre contas: NULL = nova */
+void editor_transfer(const char *transfer_id);
 /* meta nova já preenchida (vinda do simulador "E se…?"); valores 0/NULL ficam em branco */
 void editor_goal_pre(const char *id, const char *name, Cents target, Cents monthly);
 /* simulador "E se…?" (nada é gravado) */

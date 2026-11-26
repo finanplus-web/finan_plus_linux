@@ -97,10 +97,20 @@ typedef struct {
     int parcel_total;
     /* data prevista preservada quando um lançamento pendente é realizado em outro dia (DAY_NONE = não há) */
     Day scheduled_date;
+    /* Reserva para meta (Android 1.7): dinheiro que saiu da conta para esta meta (despesa) ou voltou dela
+     * (receita). Mexe no saldo da conta, mas não é gasto nem ganho: fica fora de despesas, limites e assistente. */
+    char *goal_id;
+    /* Transferência entre contas (Android 1.13): os dois lados (saída da origem e entrada no destino) têm o mesmo
+     * transfer_id. Mexe no saldo de cada conta, mas o total não muda (TRANSFERENCIAS.md). */
+    char *transfer_id;
 } Tx;
 
-#define tx_is_flow(t) ((t)->card_payment[0] == '\0')
+/* receita ou despesa de verdade (ficam de fora: pagamento de fatura, reserva para meta e transferência) */
+#define tx_is_flow(t) ((t)->card_payment[0] == '\0' && (t)->goal_id[0] == '\0' && (t)->transfer_id[0] == '\0')
 #define tx_is_card(t) ((t)->card_id[0] != '\0')
+#define tx_is_card_payment(t) ((t)->card_payment[0] != '\0')
+#define tx_is_goal(t) ((t)->goal_id[0] != '\0')
+#define tx_is_transfer(t) ((t)->transfer_id[0] != '\0')
 
 typedef struct { char *id; char *name; Cents initial; } Account;
 typedef struct { char *id; char *name; Cents limit; int close; int due; } Card;
@@ -121,6 +131,28 @@ typedef struct {
 } Recurring;
 typedef struct { char *category; Cents value; } Limit;
 
+/* ---- despesas compartilhadas (Android 1.8, core/Shared.kt; regras em shared.h) ---- */
+typedef enum { SPLIT_EQUAL, SPLIT_CUSTOM } SplitMode;
+/* participante e a parte dele na despesa (centavos) */
+typedef struct { char *id; char *name; Cents share; } SharedPerson;
+/* valor que person_id devolveu a quem pagou */
+typedef struct { char *id; char *person_id; Cents value; Day date; } SharedPayment;
+typedef struct {
+    char *id;
+    char *name;
+    Cents total;
+    Day date;
+    /* id do participante que pagou a conta */
+    char *payer_id;
+    GPtrArray *people;   /* SharedPerson* */
+    SplitMode split;
+    char *note;
+    /* comprovante (só no Android, cifrado no aparelho): guardado como veio, para o backup não perder */
+    char *receipt;
+    char *receipt_type;
+    GPtrArray *payments; /* SharedPayment* */
+} SharedExpense;
+
 /* Estado completo do app. É o que vai para o backup JSON (compatível com o Finan+ web). */
 typedef struct {
     GPtrArray *txs;       /* Tx* */
@@ -134,12 +166,18 @@ typedef struct {
     /* minutos sem usar até bloquear; 0 = desativado */
     int auto_lock;
     ThemeId theme;
+    /* despesas compartilhadas: quem pagou, quem divide e quem já devolveu */
+    GPtrArray *shared;    /* SharedExpense* */
 } AppState;
 
 #define MAIN_ACCOUNT "main"
 #define CARD_PAYMENT_CAT "Pagamento de fatura"
+/* categoria dos lançamentos de reserva para meta (não aparece na lista de categorias) */
+#define GOAL_CAT "Metas"
+/* categoria dos dois lados de uma transferência entre contas (não aparece na lista de categorias) */
+#define TRANSFER_CAT "Transferência"
 extern const int AUTOLOCK_OPTIONS[5];
-extern const char *const DEFAULT_EXPENSE[7];
+extern const char *const DEFAULT_EXPENSE[8];
 extern const char *const DEFAULT_INCOME[4];
 
 Tx *tx_new(const char *id, Kind kind, Cents value, Day date, const char *desc, const char *category,
@@ -159,6 +197,17 @@ Recurring *recurring_new(const char *id, Kind kind, const char *desc, Cents valu
 void recurring_free(Recurring *r);
 Limit *limit_new(const char *category, Cents value);
 void limit_free(Limit *l);
+SharedPerson *shared_person_new(const char *id, const char *name, Cents share);
+void shared_person_free(SharedPerson *p);
+SharedPayment *shared_payment_new(const char *id, const char *person_id, Cents value, Day date);
+void shared_payment_free(SharedPayment *p);
+/* despesa sem participantes nem pagamentos (as listas começam vazias) */
+SharedExpense *shared_expense_new(const char *id, const char *name, Cents total, Day date, const char *payer_id,
+                                  SplitMode split, const char *note);
+SharedExpense *shared_expense_copy(const SharedExpense *e);
+void shared_expense_free(SharedExpense *e);
+const char *split_json(SplitMode m);
+SplitMode split_parse(const char *s);
 
 /* estado vazio: só "Conta principal" e as categorias padrão */
 AppState *app_state_new(void);
@@ -173,6 +222,7 @@ Card *app_card(const AppState *s, const char *id);
 Tx *app_tx(const AppState *s, const char *id);
 Goal *app_goal(const AppState *s, const char *id);
 Recurring *app_recurring(const AppState *s, const char *id);
+SharedExpense *app_shared(const AppState *s, const char *id);
 /* limite da categoria; FALSE se não houver */
 gboolean app_limit(const AppState *s, const char *cat, Cents *out);
 gboolean app_has_category(const AppState *s, Kind k, const char *name);
@@ -186,8 +236,10 @@ const char *app_first_category(const AppState *s, Kind k);
 #define LIMIT_RECURRING 1000
 #define LIMIT_GOALS 1000
 #define LIMIT_CATEGORIES 500
-/* quantidades de cada coleção (lançamentos, contas, cartões, recorrências, metas, categorias de despesa/receita) */
-typedef struct { guint txs, accounts, cards, recurring, goals, cats[2]; } AppCounts;
+#define LIMIT_SHARED 1000
+/* quantidades de cada coleção (lançamentos, contas, cartões, recorrências, metas, categorias de despesa/receita,
+ * despesas compartilhadas) */
+typedef struct { guint txs, accounts, cards, recurring, goals, cats[2], shared; } AppCounts;
 AppCounts app_counts(const AppState *s);
 /* Mensagem (estática) se passar de [before] para [after] cria itens além dos limites; NULL = dentro.
  * Só conta quando a coleção cresce: quem já tinha mais itens continua editando normalmente. */
@@ -202,7 +254,7 @@ gboolean app_money_fits(const AppState *s, Cents minus, Cents plus);
 char *ids_new(void);
 
 /* ---------------------------------------------------------------- dinheiro (money.c) */
-/* "R$ 1.234,56" / "-R$ 0,50" — formatação própria, não depende do idioma. buf ≥ 32 */
+/* "R$ 1.234,56" / "− R$ 0,50" (sinal de menos tipográfico) — formatação própria, não depende do idioma. buf ≥ 32 */
 char *money_format(Cents c, char *buf);
 char *money_fmt(Cents c); /* g_free */
 /* valor para campo de edição: "1500,50". buf ≥ 32 */

@@ -2,6 +2,8 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 #include "backup.h"
+#include "shared.h"
+#include "transfers.h"
 #include <json-glib/json-glib.h>
 #include <math.h>
 #include <string.h>
@@ -148,6 +150,73 @@ static char *id_for(Ctx *c, JsonNode *n) {
 
 /* ------------------------------------------------------------------ normalização */
 
+/* Uma despesa compartilhada (como Backup.normalizeShared do Android). Inválida (NULL): sem nome, total, data,
+ * participantes ou pagador, ou partes que não somam o total. Pagamentos inválidos, de quem não deve ou acima da
+ * parte são descartados. */
+static SharedExpense *normalize_shared(Ctx *c, JsonObject *o) {
+    if (!o) return NULL;
+    g_autofree char *name = jstr(mem(o, "name"), SHARED_NAME_MAX);
+    Cents total = jcents(mem(o, "total"));
+    Day date = jdate(mem(o, "date"));
+    JsonArray *raw_people = jarr(mem(o, "people"));
+    if (!*name || total <= 0 || date == DAY_NONE || !raw_people) return NULL;
+    g_autoptr(GHashTable) id_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    SharedExpense *e = shared_expense_new("", name, total, date, "", SPLIT_EQUAL, "");
+    Cents sum = 0;
+    guint np = MIN(json_array_get_length(raw_people), SHARED_PEOPLE_MAX);
+    for (guint i = 0; i < np; i++) {
+        JsonObject *p = jobj(json_array_get_element(raw_people, i));
+        g_autofree char *pn = jstr(mem(p, "name"), SHARED_PERSON_MAX);
+        Cents share = jcents(mem(p, "share"));
+        if (!p || !*pn || share < 0) { shared_expense_free(e); return NULL; }
+        g_autofree char *id = id_for(c, mem(p, "id"));
+        char *raw = jstr(mem(p, "id"), 48);
+        if (!g_hash_table_contains(id_map, raw)) g_hash_table_insert(id_map, raw, g_strdup(id));
+        else g_free(raw);
+        g_ptr_array_add(e->people, shared_person_new(id, pn, share));
+        sum += share;
+    }
+    g_autofree char *payer_raw = jstr(mem(o, "payer"), 48);
+    const char *payer = g_hash_table_lookup(id_map, payer_raw);
+    if (e->people->len < 2 || sum != total || !payer) { shared_expense_free(e); return NULL; }
+    g_autofree char *id = id_for(c, mem(o, "id"));
+    tx_set_str(&e->id, id);
+    tx_set_str(&e->payer_id, payer);
+    JsonNode *sp = mem(o, "split");
+    e->split = split_parse(is_value(sp, G_TYPE_STRING) ? json_node_get_string(sp) : NULL);
+    g_autofree char *note = jstr(mem(o, "note"), SHARED_NOTE_MAX);
+    tx_set_str(&e->note, note);
+    g_autofree char *receipt = jsafe_id(mem(o, "receipt"));
+    tx_set_str(&e->receipt, receipt);
+    if (*receipt) { g_autofree char *rt = jstr(mem(o, "receiptType"), 60); tx_set_str(&e->receipt_type, rt); }
+    /* pagamentos: só de quem deve, e no máximo até a parte de cada um */
+    SharedSummary st;
+    shared_summary(e, &st);
+    g_autofree Cents *left = g_new0(Cents, st.people->len);
+    for (guint i = 0; i < st.people->len; i++) left[i] = g_array_index(st.people, PersonStatus, i).owed;
+    shared_summary_clear(&st);
+    JsonArray *pays = jarr(mem(o, "payments"));
+    guint npay = pays ? MIN(json_array_get_length(pays), SHARED_PAYMENTS_MAX) : 0;
+    for (guint i = 0; i < npay; i++) {
+        JsonObject *p = jobj(json_array_get_element(pays, i));
+        if (!p) continue;
+        g_autofree char *praw = jstr(mem(p, "person"), 48);
+        const char *pid = g_hash_table_lookup(id_map, praw);
+        if (!pid) continue;
+        Cents v = jcents(mem(p, "value"));
+        Day pd = jdate(mem(p, "date"));
+        if (pd == DAY_NONE) continue;
+        int idx = -1;
+        for (guint k = 0; k < e->people->len; k++) if (strcmp(((SharedPerson *)e->people->pdata[k])->id, pid) == 0) idx = (int)k;
+        Cents max = idx >= 0 ? left[idx] : 0;
+        if (v <= 0 || v > max) continue;
+        left[idx] = max - v;
+        g_autofree char *pay_id = id_for(c, mem(p, "id"));
+        g_ptr_array_add(e->payments, shared_payment_new(pay_id, pid, v, pd));
+    }
+    return e;
+}
+
 static gboolean too_many(JsonArray *a, guint max) { return a && json_array_get_length(a) > max; }
 
 static AppState *normalize(JsonNode *root, Dropped *d, gboolean enforce_limits, GError **error) {
@@ -160,6 +229,7 @@ static AppState *normalize(JsonNode *root, Dropped *d, gboolean enforce_limits, 
         const char *what = too_many(raw_txs, LIMIT_TXS) ? "lançamentos" : too_many(jarr(mem(r, "accounts")), LIMIT_ACCOUNTS) ? "contas"
             : too_many(jarr(mem(r, "cards")), LIMIT_CARDS) ? "cartões" : too_many(jarr(mem(r, "recurring")), LIMIT_RECURRING) ? "recorrências"
             : too_many(jarr(mem(r, "goals")), LIMIT_GOALS) ? "metas"
+            : too_many(jarr(mem(r, "shared")), LIMIT_SHARED) ? "despesas compartilhadas"
             : (too_many(jarr(mem(jobj(mem(r, "cats")), "expense")), LIMIT_CATEGORIES) || too_many(jarr(mem(jobj(mem(r, "cats")), "income")), LIMIT_CATEGORIES)) ? "categorias" : NULL;
         if (what) { g_set_error(error, BACKUP_ERROR, 8, "Muitas %s no backup", what); return NULL; }
     }
@@ -256,11 +326,18 @@ static AppState *normalize(JsonNode *root, Dropped *d, gboolean enforce_limits, 
         g_autofree char *cat = jstr(mem(o, "category"), 40);
         g_autofree char *acc = ACC_OF(mem(o, "accountId"));
         gboolean paid = *card_id ? TRUE : !jis_false(mem(o, "paid"));
+        /* reserva para meta (Android 1.7): nunca no cartão nem junto com pagamento de fatura; sempre realizada */
+        g_autofree char *goal_id = (!*card_id && !*card_pay) ? jsafe_id(mem(o, "goalId")) : g_strdup("");
+        /* transferência entre contas (Android 1.13): nunca no cartão, em fatura ou meta; sempre realizada */
+        g_autofree char *transfer_id = (!*card_id && !*card_pay && !*goal_id) ? jsafe_id(mem(o, "transferId")) : g_strdup("");
         Tx *t = tx_new(id, kind, value, date, *desc ? desc : "Sem descrição",
-                       *cat ? cat : (*card_pay ? CARD_PAYMENT_CAT : "Outros"), paid, acc, card_id);
+                       *cat ? cat : (*card_pay ? CARD_PAYMENT_CAT : *goal_id ? GOAL_CAT : *transfer_id ? TRANSFER_CAT : "Outros"),
+                       paid || *goal_id || *transfer_id, acc, card_id);
         tx_set_str(&t->card_payment, card_pay);
-        /* data prevista: só em lançamento realizado de conta (não cartão nem pagamento de fatura) */
-        if (paid && !*card_id && !*card_pay) t->scheduled_date = jdate(mem(o, "scheduledDate"));
+        tx_set_str(&t->goal_id, goal_id);
+        tx_set_str(&t->transfer_id, transfer_id);
+        /* data prevista: só em lançamento realizado de conta (não cartão, fatura, meta nem transferência) */
+        if (paid && !*card_id && !*card_pay && !*goal_id && !*transfer_id) t->scheduled_date = jdate(mem(o, "scheduledDate"));
         g_autofree char *rid = jsafe_id(mem(o, "recurringId"));
         g_autofree char *gid = jsafe_id(mem(o, "groupId"));
         tx_set_str(&t->recurring_id, rid);
@@ -280,6 +357,14 @@ static AppState *normalize(JsonNode *root, Dropped *d, gboolean enforce_limits, 
         g_autofree char *id = id_for(&c, mem(g, "id"));
         g_ptr_array_add(s->goals, goal_new(id, name, target, MAX(0, jcents(mem(g, "saved"))), jdate(mem(g, "deadline")),
                                            MAX(0, jcents(mem(g, "monthly")))));
+    }
+
+    /* despesas compartilhadas (Android 1.8; sem o campo, nenhuma) */
+    JsonArray *sh = jarr(mem(r, "shared"));
+    for (guint i = 0; sh && i < json_array_get_length(sh); i++) {
+        SharedExpense *e = normalize_shared(&c, jobj(json_array_get_element(sh, i)));
+        if (e) g_ptr_array_add(s->shared, e);
+        else dd.shared++;
     }
 
     /* limites (a mesma categoria repetida fica com o último valor, na posição original) */
@@ -314,6 +399,8 @@ static AppState *normalize(JsonNode *root, Dropped *d, gboolean enforce_limits, 
 #undef ACC_OF
 #undef CARD_OF
     g_hash_table_unref(c.used);
+    /* transferência com um lado só ou lados que não combinam vira lançamento comum */
+    transfers_sanitize(s->txs);
     if (!app_money_fits(s, 0, 0)) {
         app_state_free(s);
         g_set_error(error, BACKUP_ERROR, 9, "O total dos valores excede o limite seguro");
@@ -398,6 +485,8 @@ char *backup_to_json(const AppState *s, const char *app_version) {
         if (t->group_id[0]) jks(o, "groupId", t->group_id);
         if (t->parcel_total > 0) g_string_append_printf(o, ",\"parcel\":{\"n\":%d,\"total\":%d}", t->parcel_n, t->parcel_total);
         if (t->scheduled_date != DAY_NONE) jks(o, "scheduledDate", day_iso(t->scheduled_date, b));
+        if (t->goal_id[0]) jks(o, "goalId", t->goal_id);
+        if (t->transfer_id[0]) jks(o, "transferId", t->transfer_id);
         g_string_append_c(o, '}');
     }
     g_string_append(o, "],\"goals\":[");
@@ -464,6 +553,44 @@ char *backup_to_json(const AppState *s, const char *app_version) {
     }
     g_string_append_printf(o, "},\"privacy\":%s,\"autoLock\":%d", s->privacy ? "true" : "false", s->auto_lock);
     jks(o, "theme", theme_json(s->theme));
+    /* só aparece quando há despesas compartilhadas (o Finan+ web ignora o campo) */
+    if (s->shared->len) {
+        g_string_append(o, ",\"shared\":[");
+        for (guint i = 0; i < s->shared->len; i++) {
+            SharedExpense *e = s->shared->pdata[i];
+            if (i) g_string_append_c(o, ',');
+            g_string_append(o, "{\"id\":"); js(o, e->id);
+            jks(o, "name", e->name);
+            jkm(o, "total", e->total);
+            jks(o, "date", day_iso(e->date, b));
+            jks(o, "payer", e->payer_id);
+            jks(o, "split", split_json(e->split));
+            jks(o, "note", e->note);
+            g_string_append(o, ",\"people\":[");
+            for (guint k = 0; k < e->people->len; k++) {
+                SharedPerson *p = e->people->pdata[k];
+                if (k) g_string_append_c(o, ',');
+                g_string_append(o, "{\"id\":"); js(o, p->id);
+                jks(o, "name", p->name);
+                jkm(o, "share", p->share);
+                g_string_append_c(o, '}');
+            }
+            g_string_append(o, "],\"payments\":[");
+            for (guint k = 0; k < e->payments->len; k++) {
+                SharedPayment *p = e->payments->pdata[k];
+                if (k) g_string_append_c(o, ',');
+                g_string_append(o, "{\"id\":"); js(o, p->id);
+                jks(o, "person", p->person_id);
+                jkm(o, "value", p->value);
+                jks(o, "date", day_iso(p->date, b));
+                g_string_append_c(o, '}');
+            }
+            g_string_append_c(o, ']');
+            if (e->receipt[0]) { jks(o, "receipt", e->receipt); jks(o, "receiptType", e->receipt_type); }
+            g_string_append_c(o, '}');
+        }
+        g_string_append_c(o, ']');
+    }
     g_string_append_printf(o, ",\"backupVersion\":%d", BACKUP_VERSION);
     if (app_version) {
         g_autoptr(GDateTime) now = g_date_time_new_now_utc();

@@ -14,8 +14,8 @@ G_BEGIN_DECLS
 /* tamanho máximo aceito para um arquivo de backup */
 #define BACKUP_MAX_BYTES (30 * 1024 * 1024)
 
-typedef struct { int txs, goals, accounts, cards, recurring; } Dropped;
-#define dropped_total(d) ((d).txs + (d).goals + (d).accounts + (d).cards + (d).recurring)
+typedef struct { int txs, goals, accounts, cards, recurring, shared; } Dropped;
+#define dropped_total(d) ((d).txs + (d).goals + (d).accounts + (d).cards + (d).recurring + (d).shared)
 
 #define BACKUP_ERROR (backup_error_quark())
 GQuark backup_error_quark(void);

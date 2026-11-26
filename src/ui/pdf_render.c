@@ -472,7 +472,8 @@ static void tx_table(Pen *p, const AppState *s) {
         g_autofree char *where = NULL;
         if (tx_is_card(t)) { Card *c = app_card(s, t->card_id); where = g_strdup_printf("Cartão %s", c ? c->name : ""); }
         else { Account *a = app_account(s, t->account_id); where = g_strdup(a ? a->name : ""); }
-        const char *status = payment ? "Pag. fatura" : tx_is_card(t) ? "Cartão" : t->paid ? (t->kind == KIND_INCOME ? "Recebido" : "Pago")
+        const char *status = tx_is_goal(t) ? (t->kind == KIND_EXPENSE ? "Meta" : "Ret. meta") : tx_is_transfer(t) ? "Transf."
+                           : payment ? "Pag. fatura" : tx_is_card(t) ? "Cartão" : t->paid ? (t->kind == KIND_INCOME ? "Recebido" : "Pago")
                                                                                          : (t->kind == KIND_INCOME ? "A receber" : "A pagar");
         char d[11];
         text(p, day_br(t->date, d), x, base, 8, MUTED, FALSE, AL_LEFT, 0);

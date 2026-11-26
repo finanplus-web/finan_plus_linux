@@ -10,6 +10,8 @@
  * Calendário: page_calendar.c.
  */
 #include "pages.h"
+#include "core/transfers.h"
+#include "core/txform.h"
 #include "widgets.h"
 #include "core/finance.h"
 #include "core/period.h"
@@ -50,7 +52,9 @@ const char *tx_status(const Tx *t, gboolean *late) {
     if (late) *late = FALSE;
     /* situação por escrito (1.6.0, como no Android) */
     if (tx_is_projected(t)) return "Prevista · recorrência";
-    if (!tx_is_flow(t)) return "Pag. fatura";
+    if (tx_is_goal(t)) return t->kind == KIND_EXPENSE ? "Guardado na meta" : "Retirado da meta";
+    if (tx_is_transfer(t)) return "Transferência";
+    if (tx_is_card_payment(t)) return "Pag. fatura";
     if (tx_is_card(t)) return "No cartão";
     if (t->paid) return t->kind == KIND_INCOME ? "Recebida" : "Paga";
     if (t->date < APP->today) { if (late) *late = TRUE; return t->kind == KIND_INCOME ? "Vencida · a receber" : "Vencida · a pagar"; }
@@ -98,20 +102,29 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
     gboolean wide = APP->layout >= LAYOUT_WIDE;
     gboolean late;
     const char *status = tx_status(t, &late);
+    /* transferência: cada lado diz para onde foi ou de onde veio (Android 1.13) */
+    g_autofree char *tstatus = NULL;
+    TransferLegs legs;
+    if (tx_is_transfer(t) && transfer_legs(s, t->transfer_id, &legs)) {
+        Account *o = app_account(s, t->kind == KIND_EXPENSE ? legs.into->account_id : legs.out->account_id);
+        tstatus = g_strdup_printf(t->kind == KIND_EXPENSE ? "Enviada para %s" : "Recebida de %s", o ? o->name : "Conta");
+        status = tstatus;
+    }
+    const char *cat = txform_display_category(t->category);
     g_autofree char *where = NULL;
     if (tx_is_card(t)) { Card *c = app_card(s, t->card_id); where = g_strdup_printf("Cartão %s", c ? c->name : ""); }
     else { Account *a = app_account(s, t->account_id); where = g_strdup(a ? a->name : "Conta"); }
 
     GtkWidget *row = w_hbox(12);
     gtk_widget_add_css_class(row, "fin-row");
-    w_add(row, w_category_glyph(t->category));
+    w_add(row, w_category_glyph(cat));
     GtkWidget *texts = w_vbox(2);
     gtk_widget_set_hexpand(texts, TRUE);
     w_add(texts, w_label(t->desc, "heading"));
     char sd[11];
     /* lançamento realizado em outro dia: mostra também a data prevista original */
-    g_autofree char *l2 = t->paid && t->scheduled_date != DAY_NONE ? g_strdup_printf("%s · %s · previsto %s", t->category, where, day_br(t->scheduled_date, sd))
-                                                                   : g_strdup_printf("%s · %s", t->category, where);
+    g_autofree char *l2 = t->paid && t->scheduled_date != DAY_NONE ? g_strdup_printf("%s · %s · previsto %s", cat, where, day_br(t->scheduled_date, sd))
+                                                                   : g_strdup_printf("%s · %s", cat, where);
     w_add(texts, w_label(l2, "fin-muted caption"));
     char d[11];
     if (!wide) {
@@ -132,7 +145,11 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
     }
     g_autofree char *v = app_money(t->value);
     g_autofree char *vs = g_strdup_printf("%s %s", t->kind == KIND_EXPENSE ? "−" : "+", v);
-    GtkWidget *vl = w_label(vs, !tx_is_flow(t) ? "fin-money fin-muted" : t->kind == KIND_EXPENSE ? "fin-money fin-red" : "fin-money fin-green");
+    /* reserva para meta: sai do saldo ("−") no âmbar das metas; retirada volta para a conta ("+", verde);
+     * transferência em cor neutra; pagamento de fatura apagado (já contou nas compras) */
+    const char *vcls = tx_is_transfer(t) ? "fin-money" : tx_is_goal(t) && t->kind == KIND_EXPENSE ? "fin-money fin-goal"
+                     : tx_is_card_payment(t) ? "fin-money fin-muted" : t->kind == KIND_EXPENSE ? "fin-money fin-red" : "fin-money fin-green";
+    GtkWidget *vl = w_label(vs, vcls);
     gtk_label_set_xalign(GTK_LABEL(vl), 1);
     gtk_widget_set_size_request(vl, wide ? 140 : 110, -1);
     gtk_label_set_ellipsize(GTK_LABEL(vl), PANGO_ELLIPSIZE_NONE);
@@ -146,9 +163,12 @@ GtkWidget *tx_row_full(const Tx *t, gboolean with_date) {
         g_object_set_data_full(G_OBJECT(row), "rec", g_strdup(t->recurring_id), g_free);
     } else if (!ops_can_toggle_paid(t)) {
         /* compra no cartão ou pagamento de fatura: não alterna pago/pendente */
-        GtkWidget *ic = w_icon(tx_is_card(t) ? "credit-card" : "check", 20);
+        GtkWidget *ic = w_icon(tx_is_card(t) ? "credit-card" : tx_is_goal(t) ? "savings" : tx_is_transfer(t) ? "swap-horiz" : "check", 20);
         gtk_widget_set_size_request(ic, 34, -1);
-        gtk_widget_set_tooltip_text(ic, tx_is_card(t) ? "Compra no cartão: entra na fatura" : "Pagamento de fatura");
+        gtk_widget_set_tooltip_text(ic, tx_is_card(t) ? "Compra no cartão: entra na fatura"
+                                      : tx_is_goal(t) ? "Reserva para meta: não conta como despesa nem receita"
+                                      : tx_is_transfer(t) ? "Transferência entre contas: não conta como despesa nem receita"
+                                      : "Pagamento de fatura");
         w_add(row, ic);
     } else {
         GtkWidget *chk = w_button(NULL, t->paid ? "check" : NULL, t->paid ? "fin-check on" : "fin-check", toggle_paid, g_strdup(t->id), g_free);
@@ -531,14 +551,26 @@ static GtkWidget *day_head(Day d, GPtrArray *txs) {
     GtkWidget *tl = w_label(title, "heading");
     gtk_widget_set_hexpand(tl, TRUE);
     w_add(h, tl);
-    /* saldo do dia pela mesma regra do calendário; só quando há dinheiro das contas no dia */
-    gboolean cash = FALSE;
-    for (guint i = 0; i < txs->len; i++) if (!tx_is_card((Tx *)txs->pdata[i])) cash = TRUE;
-    if (cash && !app_hidden()) {
-        Cents net = period_cash_net(txs);
+    /* total do dia só com receitas e despesas (Android 1.9): reservas para meta à parte ("R$ X em metas"),
+     * transferências e compras no cartão de fora; os saldos não mudam */
+    DayTotal dt = period_day_total(txs);
+    if (!app_hidden() && (dt.has_flow || dt.goals)) {
+        GtkWidget *right = w_vbox(0);
         char buf[40];
-        g_autofree char *s = g_strdup_printf("%s%s", net > 0 ? "+ " : net < 0 ? "− " : "", money_format(net < 0 ? -net : net, buf));
-        w_add(h, w_label(s, net < 0 ? "heading fin-red" : "heading fin-green"));
+        if (dt.has_flow) {
+            Cents net = dt.net;
+            g_autofree char *s = g_strdup_printf("%s%s", net > 0 ? "+ " : net < 0 ? "− " : "", money_format(net < 0 ? -net : net, buf));
+            GtkWidget *l = w_label(s, net < 0 ? "heading fin-red" : "heading fin-green");
+            gtk_label_set_xalign(GTK_LABEL(l), 1);
+            w_add(right, l);
+        }
+        if (dt.goals) {
+            g_autofree char *g = g_strdup_printf(dt.goals > 0 ? "%s em metas" : "%s retirados de metas", money_format(dt.goals > 0 ? dt.goals : -dt.goals, buf));
+            GtkWidget *l = w_label(g, "caption fin-goal");
+            gtk_label_set_xalign(GTK_LABEL(l), 1);
+            w_add(right, l);
+        }
+        w_add(h, right);
     }
     return h;
 }

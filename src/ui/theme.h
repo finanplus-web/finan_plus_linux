@@ -11,6 +11,8 @@ G_BEGIN_DECLS
 typedef struct {
     gboolean dark;
     guint32 bg, surface, border, text, muted, accent, accent2, on_accent, red, green, track, glow_a, glow_b;
+    /* cores próprias por conceito (Android 1.11, REDESIGN-COERENCIA.md): metas em âmbar, cartão em lilás */
+    guint32 goal, card;
 } FinPalette;
 
 void theme_apply(ThemeId t);

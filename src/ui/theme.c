@@ -8,20 +8,20 @@
 #include "theme.h"
 #include <adwaita.h>
 
-/* bg, surface(ARGB), border(ARGB), text, muted, accent, accent2, on_accent, red, green, track, glowA, glowB */
+/* bg, surface(ARGB), border(ARGB), text, muted, accent, accent2, on_accent, red, green, track, glowA, glowB, goal, card */
 static const FinPalette PALETTES[] = {
     /* Claro */
-    {FALSE, 0xFFEEF4FF, 0xB8FFFFFF, 0xB8FFFFFF, 0xFF182238, 0xFF5B6579, 0xFF3A5FC8, 0xFFDFE8FF, 0xFFFFFFFF, 0xFFB03A4F, 0xFF1B7351, 0xFFDFE5EF, 0xFFD9E5FF, 0xFFFFE7ED},
+    {FALSE, 0xFFEEF4FF, 0xB8FFFFFF, 0xB8FFFFFF, 0xFF182238, 0xFF5B6579, 0xFF3A5FC8, 0xFFDFE8FF, 0xFFFFFFFF, 0xFFB03A4F, 0xFF1B7351, 0xFFDFE5EF, 0xFFD9E5FF, 0xFFFFE7ED, 0xFFB4580A, 0xFF7446D0},
     /* Gruvbox (paleta de morhetz, as mesmas cores do Android 1.6): fundo #282828, cartões #32302F, texto creme, azul de destaque */
-    {TRUE, 0xFF282828, 0xFF32302F, 0xFF3C3836, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF3A4442, 0xFF1D2021, 0xFFFF7F7F, 0xFFB8BB26, 0xFF504945, 0xFF282828, 0xFF282828},
+    {TRUE, 0xFF282828, 0xFF32302F, 0xFF3C3836, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF3A4442, 0xFF1D2021, 0xFFFF7F7F, 0xFFB8BB26, 0xFF504945, 0xFF282828, 0xFF282828, 0xFFFE8019, 0xFFD3869B},
     /* OLED Cinza */
-    {TRUE, 0xFF181A1F, 0xFF23262D, 0xFF353941, 0xFFF1F3F6, 0xFFA8ADB7, 0xFF8AA8FF, 0xFF30343D, 0xFF10131A, 0xFFFF8A91, 0xFF63D6A5, 0xFF353941, 0xFF181A1F, 0xFF181A1F},
+    {TRUE, 0xFF181A1F, 0xFF23262D, 0xFF353941, 0xFFF1F3F6, 0xFFA8ADB7, 0xFF8AA8FF, 0xFF30343D, 0xFF10131A, 0xFFFF8A91, 0xFF63D6A5, 0xFF353941, 0xFF181A1F, 0xFF181A1F, 0xFFF5A35C, 0xFFC3A6FF},
     /* Tokyo Night */
-    {TRUE, 0xFF1A1B26, 0xDB24283B, 0x247AA2F7, 0xFFC0CAF5, 0xFF9AA5CE, 0xFF7AA2F7, 0xFF292E42, 0xFF1A1B26, 0xFFF7768E, 0xFF9ECE6A, 0xFF3B4261, 0xFF24283B, 0xFF292E42},
+    {TRUE, 0xFF1A1B26, 0xDB24283B, 0x247AA2F7, 0xFFC0CAF5, 0xFF9AA5CE, 0xFF7AA2F7, 0xFF292E42, 0xFF1A1B26, 0xFFF7768E, 0xFF9ECE6A, 0xFF3B4261, 0xFF24283B, 0xFF292E42, 0xFFFF9E64, 0xFFBB9AF7},
     /* Nord */
-    {TRUE, 0xFF2E3440, 0xDB3B4252, 0x1FD8DEE9, 0xFFECEFF4, 0xFFB7C0CF, 0xFF88C0D0, 0xFF434C5E, 0xFF2E3440, 0xFFF0A3A9, 0xFFA3BE8C, 0xFF4C566A, 0xFF3B4252, 0xFF354052},
+    {TRUE, 0xFF2E3440, 0xDB3B4252, 0x1FD8DEE9, 0xFFECEFF4, 0xFFB7C0CF, 0xFF88C0D0, 0xFF434C5E, 0xFF2E3440, 0xFFF0A3A9, 0xFFA3BE8C, 0xFF4C566A, 0xFF3B4252, 0xFF354052, 0xFFD08770, 0xFFB48EAD},
     /* Gruvbox OLED: as mesmas cores sobre preto puro; cartões quase pretos com borda fina */
-    {TRUE, 0xFF000000, 0xFF0D0D0C, 0xFF1D2021, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF17201F, 0xFF000000, 0xFFFB4934, 0xFFB8BB26, 0xFF282828, 0xFF000000, 0xFF000000},
+    {TRUE, 0xFF000000, 0xFF0D0D0C, 0xFF1D2021, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF17201F, 0xFF000000, 0xFFFB4934, 0xFFB8BB26, 0xFF282828, 0xFF000000, 0xFF000000, 0xFFFE8019, 0xFFD3869B},
 };
 enum { P_LIGHT, P_GRUVBOX, P_OLED, P_TOKYO, P_NORD, P_GRUVBOX_OLED };
 
@@ -333,6 +333,17 @@ static char *build_extra(const FinPalette *p) {
         ".fin-comfy .fin-row { padding: 14px 16px; }\n"
         ".fin-comfy button.fin-line { padding: 12px 8px; }\n",
         accent, accent2, muted, text, stat, sol, border, track);
+    /* metas em âmbar e cartão em lilás (Android 1.11): mesma cor do valor, do ícone e do selo */
+    g_autofree char *goal = css(p->goal), *card = css(p->card);
+    g_autofree char *goal_soft = css((p->goal & 0x00FFFFFF) | (p->dark ? 0x2E000000u : 0x21000000u));
+    g_autofree char *card_soft = css((p->card & 0x00FFFFFF) | (p->dark ? 0x2E000000u : 0x21000000u));
+    g_string_append_printf(g,
+        ".fin-goal { color: %1$s; }\n.fin-cardc { color: %2$s; }\n"
+        ".fin-ico.goal, .fin-glyph.goal { background-color: %3$s; color: %1$s; }\n"
+        ".fin-ico.card, .fin-glyph.card { background-color: %4$s; color: %2$s; }\n"
+        ".fin-dot.goal { background-color: %1$s; }\n.fin-dot.card { background-color: %2$s; }\n"
+        ".fin-badge.goal { background-color: %3$s; color: %1$s; }\n",
+        goal, card, goal_soft, card_soft);
     return g_string_free(g, FALSE);
 }
 

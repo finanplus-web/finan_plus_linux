@@ -3,6 +3,7 @@
  */
 #include "ops.h"
 #include "finance.h"
+#include "transfers.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -82,6 +83,8 @@ gboolean ops_save_tx(AppState *s, const char *edit_id, const TxDraft *d, Day tod
     if (edit_id) {
         Tx *t = app_tx(s, edit_id);
         if (!t) return fail(err, REVISE, "Lançamento não encontrado.");
+        if (tx_is_goal(t)) return fail(err, "Lançamento de meta", "Este lançamento é de uma meta. Para mudar o valor, guarde ou retire pela meta; ou exclua o lançamento.");
+        if (tx_is_transfer(t)) return fail(err, "Transferência", "Este lançamento é uma transferência entre contas. Edite pela própria transferência.");
         if (!money_room(s, t->value, value, err)) return FALSE;
         g_autofree char *acc = g_strdup(account_id), *cat = g_strdup(category), *cid = g_strdup(card_id);
         tx_set_str(&t->desc, desc);
@@ -165,11 +168,18 @@ void ops_delete_tx(AppState *s, const char *id, gboolean with_later) {
     Tx *t = app_tx(s, id);
     if (!t) return;
     g_autofree char *group = g_strdup(t->group_id);
+    /* transferência: os dois lados saem juntos (um lado sozinho mexeria no saldo de uma conta só) */
+    g_autofree char *transfer = g_strdup(t->transfer_id);
     Day date = t->date;
     for (guint i = s->txs->len; i-- > 0;) {
         Tx *o = s->txs->pdata[i];
-        gboolean kill = o == t || (with_later && group[0] && strcmp(o->group_id, group) == 0 && o->date >= date);
-        if (kill) g_ptr_array_remove_index(s->txs, i);
+        gboolean kill = o == t || (with_later && group[0] && strcmp(o->group_id, group) == 0 && o->date >= date) ||
+                        (transfer[0] && strcmp(o->transfer_id, transfer) == 0);
+        if (!kill) continue;
+        /* excluir uma reserva para meta desfaz o valor na meta (guardado volta a diminuir; retirada volta a somar) */
+        Goal *g = tx_is_goal(o) ? app_goal(s, o->goal_id) : NULL;
+        if (g) g->saved = MAX(0, o->kind == KIND_EXPENSE ? g->saved - o->value : g->saved + o->value);
+        g_ptr_array_remove_index(s->txs, i);
     }
 }
 
@@ -191,10 +201,61 @@ void ops_toggle_paid(AppState *s, const char *id, Day today) {
     }
 }
 
+/* ------------------------------------------------------------------ transferências entre contas */
+
+gboolean ops_save_transfer(AppState *s, const char *transfer_id, const char *from_id, const char *to_id, const char *value,
+                           Day date, const char *desc, Day today, OpErr *err) {
+    if (s->accounts->len < 2) return fail(err, "Uma conta só", "Cadastre outra conta em Meu dinheiro para transferir entre elas.");
+    Cents v = 0;
+    if (!money_parse(value, &v) || v <= 0) return fail(err, "Valor inválido", "Informe um valor maior que zero. Ex.: 250,00");
+    if (date == DAY_NONE) return fail(err, "Data inválida", "Informe uma data válida.");
+    if (date > today) return fail(err, "Data no futuro", "A transferência entra no saldo na hora. Lance no dia em que ela acontecer.");
+    if (!app_account(s, from_id) || !app_account(s, to_id)) return fail(err, "Conta não encontrada", "Escolha a conta de origem e a de destino.");
+    if (strcmp(from_id, to_id) == 0) return fail(err, "Mesma conta", "A conta de origem e a de destino precisam ser diferentes.");
+    g_autofree char *text = transfer_desc(desc);
+    g_autofree char *from = g_strdup(from_id), *to = g_strdup(to_id);
+    if (transfer_id) {
+        TransferLegs l;
+        if (!transfer_legs(s, transfer_id, &l)) return fail(err, REVISE, "Transferência não encontrada.");
+        if (!money_room(s, l.out->value * 2, v * 2, err)) return FALSE;
+        Tx *legs[2] = {l.out, l.into};
+        for (int i = 0; i < 2; i++) {
+            legs[i]->value = v;
+            legs[i]->date = date;
+            tx_set_str(&legs[i]->desc, text);
+            tx_set_str(&legs[i]->account_id, i == 0 ? from : to);
+        }
+        return TRUE;
+    }
+    AppCounts after = app_counts(s);
+    after.txs += 2;
+    if (!room(s, after, err) || !money_room(s, 0, v * 2, err)) return FALSE;
+    g_autofree char *tid = ids_new();
+    for (int i = 0; i < 2; i++) {
+        g_autofree char *id = ids_new();
+        Tx *t = tx_new(id, i == 0 ? KIND_EXPENSE : KIND_INCOME, v, date, text, TRANSFER_CAT, TRUE, i == 0 ? from : to, "");
+        tx_set_str(&t->transfer_id, tid);
+        g_ptr_array_add(s->txs, t);
+    }
+    return TRUE;
+}
+
 /* ------------------------------------------------------------------ metas */
 
+/* lançamento de reserva: [moved] > 0 sai da conta para a meta; < 0 volta da meta para a conta */
+static Tx *goal_tx(const char *goal_name, const char *goal_id, Cents moved, const char *account_id, Day date, const char *prefix) {
+    const char *label = prefix ? prefix : moved > 0 ? "Meta" : "Retirada da meta";
+    g_autofree char *full = g_strdup_printf("%s › %s", label, goal_name);
+    g_autofree char *desc = str_clean(full, 200);
+    g_autofree char *id = ids_new();
+    Tx *t = tx_new(id, moved > 0 ? KIND_EXPENSE : KIND_INCOME, moved > 0 ? moved : -moved, date, desc, GOAL_CAT, TRUE, account_id, "");
+    tx_set_str(&t->goal_id, goal_id);
+    return t;
+}
+
 gboolean ops_save_goal(AppState *s, const char *id, const char *name, const char *target, const char *move,
-                       Day deadline, const char *monthly, OpErr *err) {
+                       Day deadline, const char *monthly, gboolean from_account, const char *account_id, Day today,
+                       OpErr *err) {
     g_autofree char *n = str_clean(name, 60);
     Cents t = 0, m = 0, mv = 0;
     gboolean t_ok = money_parse(target, &t);
@@ -211,21 +272,58 @@ gboolean ops_save_goal(AppState *s, const char *id, const char *name, const char
         return TRUE;
     }
     Goal *g = app_goal(s, id);
-    if (!g) return TRUE;
+    if (!g) return fail(err, REVISE, "Meta não encontrada.");
     Cents saved = MAX(0, g->saved + mv);
     if (saved > MONEY_MAX_ABS) return fail(err, "Limite financeiro excedido", "O valor guardado excede o limite seguro.");
-    if (!money_room(s, g->target + g->saved + g->monthly, t + saved + m, err)) return FALSE;
+    /* o que mudou de fato (uma retirada maior que o guardado para no zero) */
+    Cents moved = saved - g->saved;
+    gboolean with_tx = from_account && moved != 0;
+    if (with_tx) {
+        AppCounts after = app_counts(s); after.txs++;
+        if (!room(s, after, err)) return FALSE;
+    }
+    if (!money_room(s, g->target + g->saved + g->monthly, t + saved + m + (with_tx ? ABS(moved) : 0), err)) return FALSE;
     tx_set_str(&g->name, n);
     g->target = t;
     g->deadline = deadline;
     g->monthly = m;
     g->saved = saved;
+    if (with_tx) {
+        const char *acc = app_account(s, account_id) ? account_id : ((Account *)s->accounts->pdata[0])->id;
+        g_autofree char *accd = g_strdup(acc);
+        g_ptr_array_add(s->txs, goal_tx(n, g->id, moved, accd, today, NULL));
+    }
     return TRUE;
 }
 
-void ops_delete_goal(AppState *s, const char *id) {
+Cents ops_goal_from_accounts(const AppState *s, const char *id) {
     Goal *g = app_goal(s, id);
-    if (g) g_ptr_array_remove(s->goals, g);
+    if (!g) return 0;
+    Cents net = 0;
+    for (guint i = 0; i < s->txs->len; i++) {
+        Tx *t = s->txs->pdata[i];
+        if (strcmp(t->goal_id, id) == 0) net += t->kind == KIND_EXPENSE ? t->value : -t->value;
+    }
+    return CLAMP(net, 0, g->saved);
+}
+
+void ops_delete_goal(AppState *s, const char *id, Day today) {
+    Goal *g = app_goal(s, id);
+    if (!g) return;
+    Cents back = ops_goal_from_accounts(s, id);
+    g_autofree char *gid = g_strdup(g->id), *name = g_strdup(g->name);
+    g_ptr_array_remove(s->goals, g);
+    if (back <= 0) return;
+    /* o que saiu das contas volta para a conta do último depósito ("Meta excluída › nome");
+     * os lançamentos antigos ficam no histórico */
+    const Tx *last = NULL;
+    for (guint i = 0; i < s->txs->len; i++) {
+        Tx *t = s->txs->pdata[i];
+        if (strcmp(t->goal_id, gid) == 0 && t->kind == KIND_EXPENSE && (!last || t->date > last->date)) last = t;
+    }
+    const char *acc = last && app_account(s, last->account_id) ? last->account_id : ((Account *)s->accounts->pdata[0])->id;
+    g_autofree char *accd = g_strdup(acc);
+    g_ptr_array_add(s->txs, goal_tx(name, gid, -back, accd, today, "Meta excluída"));
 }
 
 /* ------------------------------------------------------------------ contas */

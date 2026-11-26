@@ -146,7 +146,10 @@ static void test_money_format(void) {
     char b[32];
     g_assert_cmpstr(money_format(123456789, b), ==, "R$ 1.234.567,89");
     g_assert_cmpstr(money_format(0, b), ==, "R$ 0,00");
-    g_assert_cmpstr(money_format(-50, b), ==, "-R$ 0,50");
+    g_assert_cmpstr(money_format(-50, b), ==, "− R$ 0,50");
+    Cents neg;
+    g_assert_true(money_parse("− R$ 0,50", &neg));
+    g_assert_cmpint(neg, ==, -50);
     g_assert_cmpstr(money_input(150050, b), ==, "1500,50");
 }
 
@@ -497,14 +500,14 @@ static void test_ops_card_and_payment(void) {
 
 static void test_ops_goal(void) {
     g_autoptr(AppState) s = app_state_new();
-    g_assert_true(ops_save_goal(s, NULL, "Carro", "1500,50", "", DAY_NONE, "100", NULL));
+    g_assert_true(ops_save_goal(s, NULL, "Carro", "1500,50", "", DAY_NONE, "100", FALSE, "", 0, NULL));
     Goal *g = s->goals->pdata[0];
     g_assert_cmpint(g->target, ==, 150050);
     g_autofree char *id = g_strdup(g->id);
-    g_assert_true(ops_save_goal(s, id, "Carro novo", "1500,50", "200,25", DAY_NONE, "100", NULL));
+    g_assert_true(ops_save_goal(s, id, "Carro novo", "1500,50", "200,25", DAY_NONE, "100", FALSE, "", 0, NULL));
     g_assert_cmpint(g->saved, ==, 20025);
     g_assert_cmpstr(g->name, ==, "Carro novo");
-    g_assert_true(ops_save_goal(s, id, "Carro novo", "1500,50", "-999999", DAY_NONE, "", NULL));
+    g_assert_true(ops_save_goal(s, id, "Carro novo", "1500,50", "-999999", DAY_NONE, "", FALSE, "", 0, NULL));
     g_assert_cmpint(g->saved, ==, 0);
 }
 
@@ -566,7 +569,7 @@ static const char *match_cat(const char *desc, Kind k, GPtrArray *cats) {
 
 static void test_dict_real_file(void) {
     g_assert_cmpuint(dict()->sections->len, >=, 20);
-    g_autoptr(GPtrArray) cats = cats_of(DEFAULT_EXPENSE, 7, NULL);
+    g_autoptr(GPtrArray) cats = cats_of(DEFAULT_EXPENSE, G_N_ELEMENTS(DEFAULT_EXPENSE), NULL);
     g_autoptr(GPtrArray) inc = cats_of(DEFAULT_INCOME, 4, NULL);
     g_assert_cmpstr(match_cat("iFood pizza", KIND_EXPENSE, cats), ==, "Alimentação");
     g_assert_cmpstr(match_cat("Supermercados Pão de Açúcar", KIND_EXPENSE, cats), ==, "Alimentação");
@@ -579,13 +582,13 @@ static void test_dict_real_file(void) {
 }
 
 static void test_dict_specific_category(void) {
-    g_autoptr(GPtrArray) cats = cats_of(DEFAULT_EXPENSE, 7, "Mercado", "Assinaturas", NULL);
+    g_autoptr(GPtrArray) cats = cats_of(DEFAULT_EXPENSE, G_N_ELEMENTS(DEFAULT_EXPENSE), "Mercado", "Assinaturas", NULL);
     g_assert_cmpstr(match_cat("Carrefour", KIND_EXPENSE, cats), ==, "Mercado");
     g_assert_cmpstr(match_cat("Spotify", KIND_EXPENSE, cats), ==, "Assinaturas");
 }
 
 static void test_dict_longer_term_wins(void) {
-    g_autoptr(GPtrArray) cats = cats_of(DEFAULT_EXPENSE, 7, NULL);
+    g_autoptr(GPtrArray) cats = cats_of(DEFAULT_EXPENSE, G_N_ELEMENTS(DEFAULT_EXPENSE), NULL);
     g_assert_cmpstr(match_cat("Uber Eats", KIND_EXPENSE, cats), ==, "Alimentação");
     g_assert_cmpstr(match_cat("Mercado Livre", KIND_EXPENSE, cats), ==, "Outros");
 }
@@ -923,7 +926,7 @@ static void test_ask_unknown_words(void) {
 static void test_ask_daily_average(void) {
     g_autoptr(AppState) s = ask_state();
     AskAnswer *a = ask_answer("média de gastos este mês", s, TODAY, money_fmt);
-    g_assert_true(contains(a->text, "R$ 105,39 por dia") && contains(a->text, "15 dia(s)"));
+    g_assert_true(contains(a->text, "R$ 105,39 por dia") && contains(a->text, "15 dias"));
     ask_answer_free(a);
 }
 

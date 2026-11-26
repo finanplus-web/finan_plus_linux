@@ -36,7 +36,8 @@ core_src = files(
   'src/core/date.c', 'src/core/model.c', 'src/core/money.c', 'src/core/finance.c', 'src/core/ops.c',
   'src/core/backup.c', 'src/core/assist_text.c', 'src/core/assist_dict.c', 'src/core/assist_categorizer.c',
   'src/core/assist_insights.c', 'src/core/assist_ask.c', 'src/core/report.c', 'src/core/store.c', 'src/core/prefs.c',
-  'src/core/period.c', 'src/core/simulator.c', 'src/core/bill.c', 'src/core/billpdf.c')
+  'src/core/period.c', 'src/core/simulator.c', 'src/core/bill.c', 'src/core/billpdf.c',
+  'src/core/shared.c', 'src/core/transfers.c', 'src/core/totals.c', 'src/core/debts.c', 'src/core/txform.c')
 
 # núcleo sem interface (testado separadamente)
 core_lib = static_library('financore', core_src,
@@ -78,6 +79,8 @@ test_core = executable('test-core', 'tests/test_core.c',
 test('núcleo (casos do app Android)', test_core, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_period = executable('test-period', 'tests/test_period.c', dependencies: [core_dep])
 test('período, calendário e simulador (casos do Android 1.4.0)', test_period, env: ['FINAN_PLUS_NO_KEYRING=1'])
+test_paridade = executable('test-paridade', 'tests/test_paridade.c', dependencies: [core_dep])
+test('metas, transferências, despesas compartilhadas e glossário (casos do Android 1.7 a 1.13)', test_paridade, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_store = executable('test-store', 'tests/test_store.c', dependencies: [core_dep])
 test('armazenamento e PIN', test_store, env: ['FINAN_PLUS_NO_KEYRING=1'])
 test_bill = executable('test-bill', 'tests/test_bill.c', dependencies: [core_dep],

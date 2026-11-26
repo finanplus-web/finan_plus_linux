@@ -7,6 +7,7 @@
 #include "pages.h"
 #include "widgets.h"
 #include "core/finance.h"
+#include "core/transfers.h"
 #include <string.h>
 
 /* ---------------------------------------------------------------- moldura comum */
@@ -410,13 +411,18 @@ static void on_date_changed(GtkEditable *ed, TxEd *e) {
 
 void editor_tx(Kind kind, const char *id) { editor_tx_on(kind, id ? DAY_NONE : APP->today, id); }
 
+static void goal_move_view(const Tx *tx);
+
 void editor_tx_on(Kind kind, Day on, const char *id) {
     const AppState *s = APP->state;
     if (on == DAY_NONE) on = APP->today;
     Tx *tx = id ? app_tx(s, id) : NULL;
+    /* reserva para meta: só consulta e exclusão (o valor muda pela meta); transferência: editor próprio */
+    if (tx && tx_is_goal(tx)) { goal_move_view(tx); return; }
+    if (tx && tx_is_transfer(tx)) { editor_transfer(tx->transfer_id); return; }
     TxEd *e = g_new0(TxEd, 1);
     e->id = tx ? g_strdup(tx->id) : NULL;
-    e->payment = tx && !tx_is_flow(tx);
+    e->payment = tx && tx_is_card_payment(tx);
     e->kind = tx ? tx->kind : kind;
     e->is_new = tx == NULL;
     Frame *f = frame_new(tx ? "Editar lançamento" : "Novo lançamento", "", "Salvar");
@@ -562,7 +568,7 @@ void editor_tx_on(Kind kind, Day on, const char *id) {
 
 /* ================================================================ meta */
 
-typedef struct { Frame *f; char *id; GtkWidget *name, *target, *move, *deadline, *monthly; } GoalEd;
+typedef struct { Frame *f; char *id; GtkWidget *name, *target, *move, *deadline, *monthly, *from_account, *account; } GoalEd;
 static void goal_ed_free(GoalEd *e) { g_free(e->id); g_free(e); }
 
 static void goal_save(GtkButton *b, GoalEd *e) {
@@ -571,18 +577,38 @@ static void goal_save(GtkButton *b, GoalEd *e) {
     Day dl;
     if (!row_date_get(e->deadline, &dl)) { dlg_notice("Revise os dados", "Prazo inválido. Use DD/MM/AAAA ou deixe em branco."); return; }
     OpErr err;
+    gboolean from = e->from_account && row_switch_get(e->from_account);
+    const char *acc = e->account ? account_at(row_combo_get(e->account)) : "";
     gboolean ok = ops_save_goal(APP->state, e->id, row_text(e->name), row_text(e->target), e->move ? row_text(e->move) : "", dl,
-                                row_text(e->monthly), &err);
+                                row_text(e->monthly), from, acc, APP->today, &err);
     apply(e->f, ok, &err, e->id ? "Meta atualizada" : "Meta criada");
 }
 
-static void goal_del(gpointer p) { DelCtx *d = p; ops_delete_goal(APP->state, d->id); app_commit(); frame_close(d->f); app_toast("Meta excluída"); }
+/* "Tirar da conta" (reserva para meta, Android 1.7): aparece quando há valor a guardar ou retirar */
+static void goal_move_changed(GtkEditable *ed, GoalEd *e) {
+    (void)ed;
+    Cents mv = 0;
+    gboolean has = money_parse(row_text(e->move), &mv) && mv != 0;
+    gboolean withdraw = mv < 0, from = row_switch_get(e->from_account);
+    gtk_widget_set_visible(e->from_account, has);
+    gtk_widget_set_visible(e->account, has && from);
+    adw_preferences_row_set_title(ADW_PREFERENCES_ROW(e->from_account), withdraw ? "Devolver para a conta" : "Tirar da conta");
+    adw_action_row_set_subtitle(ADW_ACTION_ROW(e->from_account),
+        !from ? "Só o valor guardado na meta muda; o saldo da conta continua igual."
+        : withdraw ? "O valor volta para o saldo da conta." : "O valor sai do saldo da conta, mas não conta como despesa.");
+}
+static void goal_switch_changed(GObject *o, GParamSpec *p, GoalEd *e) { (void)o; (void)p; goal_move_changed(NULL, e); }
+
+static void goal_del(gpointer p) { DelCtx *d = p; ops_delete_goal(APP->state, d->id, APP->today); app_commit(); frame_close(d->f); app_toast("Meta excluída"); }
 
 static void goal_delete(GtkButton *b, GoalEd *e) {
     (void)b;
     Goal *g = app_goal(APP->state, e->id);
     if (!g) return;
-    g_autofree char *msg = g_strdup_printf("Excluir a meta “%s”?", g->name);
+    Cents back = ops_goal_from_accounts(APP->state, g->id);
+    g_autofree char *bv = money_fmt(back);
+    g_autofree char *msg = back > 0 ? g_strdup_printf("Excluir a meta “%s”? %s que saíram das contas para ela voltam para a conta.", g->name, bv)
+                                    : g_strdup_printf("Excluir a meta “%s”?", g->name);
     DelCtx *d = g_new0(DelCtx, 1);
     d->id = g_strdup(e->id);
     d->f = e->f;
@@ -610,6 +636,23 @@ void editor_goal_pre(const char *id, const char *pre_name, Cents pre_target, Cen
         e->move = row_entry("Guardar ou retirar agora (R$)", "", 20);
         gtk_widget_set_tooltip_text(e->move, "Ex.: 100 ou -50");
         gadd(gr, e->move);
+        e->from_account = row_switch("Tirar da conta", "", TRUE);
+        gadd(gr, e->from_account);
+        /* conta do último depósito nesta meta, ou a primeira */
+        const Tx *last = NULL;
+        for (guint i = 0; i < APP->state->txs->len; i++) {
+            const Tx *t = APP->state->txs->pdata[i];
+            if (strcmp(t->goal_id, g->id) == 0 && t->kind == KIND_EXPENSE && (!last || t->date > last->date)) last = t;
+        }
+        int sel = 0;
+        for (guint i = 0; last && i < APP->state->accounts->len; i++)
+            if (strcmp(((Account *)APP->state->accounts->pdata[i])->id, last->account_id) == 0) sel = (int)i;
+        g_autoptr(GPtrArray) an = account_names();
+        e->account = row_combo("Conta", (const char *const *)an->pdata, (int)an->len, sel);
+        gadd(gr, e->account);
+        g_signal_connect(e->move, "changed", G_CALLBACK(goal_move_changed), e);
+        g_signal_connect(e->from_account, "notify::active", G_CALLBACK(goal_switch_changed), e);
+        goal_move_changed(NULL, e);
     }
     e->deadline = row_date("Prazo (opcional)", g ? g->deadline : DAY_NONE, TRUE);
     e->monthly = row_entry("Contribuição mensal planejada (opcional)",
@@ -619,6 +662,146 @@ void editor_goal_pre(const char *id, const char *pre_name, Cents pre_target, Cen
     g_signal_connect(f->save, "clicked", G_CALLBACK(goal_save), e);
     if (g) g_signal_connect(delete_button(f, "Excluir meta"), "clicked", G_CALLBACK(goal_delete), e);
     frame_present(f, g ? e->move : e->name);
+}
+
+/* ---------------------------------------------------------------- lançamento de reserva para meta */
+
+typedef struct { Frame *f; char *tx_id; char *goal_id; } GoalMoveEd;
+static void goal_move_ed_free(GoalMoveEd *e) { g_free(e->tx_id); g_free(e->goal_id); g_free(e); }
+
+static void goal_move_open_goal(GtkButton *b, GoalMoveEd *e) {
+    (void)b;
+    g_autofree char *gid = g_strdup(e->goal_id);
+    frame_close(e->f);
+    editor_goal(gid);
+}
+
+static void goal_move_del(gpointer p) { DelCtx *d = p; ops_delete_tx(APP->state, d->id, FALSE); app_commit(); frame_close(d->f); app_toast("Lançamento excluído"); }
+
+static void goal_move_delete(GtkButton *b, GoalMoveEd *e) {
+    (void)b;
+    Tx *tx = app_tx(APP->state, e->tx_id);
+    if (!tx) return;
+    Goal *goal = app_goal(APP->state, tx->goal_id);
+    g_autofree char *v = money_fmt(tx->value);
+    g_autofree char *what = !goal ? g_strdup("O saldo da conta volta ao que era antes deste lançamento.")
+        : tx->kind == KIND_EXPENSE ? g_strdup_printf("O valor guardado na meta diminui %s e volta para o saldo da conta.", v)
+        : g_strdup_printf("O valor guardado na meta aumenta %s e sai de novo do saldo da conta.", v);
+    DelCtx *d = g_new0(DelCtx, 1);
+    d->id = g_strdup(tx->id);
+    d->f = e->f;
+    dlg_confirm("Excluir lançamento", what, "Excluir", TRUE, goal_move_del, d, del_ctx_free);
+}
+
+/* Lançamento de reserva para meta: só consulta e exclusão (o valor muda pela meta, como no Android) */
+static void goal_move_view(const Tx *tx) {
+    const AppState *s = APP->state;
+    Goal *goal = app_goal(s, tx->goal_id);
+    gboolean saved = tx->kind == KIND_EXPENSE;
+    GoalMoveEd *e = g_new0(GoalMoveEd, 1);
+    e->tx_id = g_strdup(tx->id);
+    e->goal_id = g_strdup(tx->goal_id);
+    Frame *f = frame_new(saved ? "Guardado na meta" : "Retirado da meta", goal ? goal->name : "Meta excluída", goal ? "Abrir a meta" : "Fechar");
+    e->f = f;
+    g_object_set_data_full(G_OBJECT(f->dialog), "ed", e, (GDestroyNotify)goal_move_ed_free);
+    GtkWidget *card = w_card(NULL);
+    GtkWidget *v = w_vbox(4);
+    w_add(v, w_money(tx->value, "fin-money-mid fin-accent"));
+    Account *a = app_account(s, tx->account_id);
+    char d[11];
+    g_autofree char *line = g_strdup_printf("%s · %s", day_br(tx->date, d), a ? a->name : "Conta");
+    w_add(v, w_label(line, "fin-muted"));
+    w_add(v, w_label_wrap(saved ? "Este valor saiu do saldo da conta para a meta. Não conta como despesa, nem nos limites ou no assistente."
+                                : "Este valor voltou da meta para o saldo da conta. Não conta como receita.", "fin-muted caption"));
+    gtk_box_append(GTK_BOX(card), v);
+    w_add(f->content, card);
+    if (goal) g_signal_connect(f->save, "clicked", G_CALLBACK(goal_move_open_goal), e);
+    else g_signal_connect_swapped(f->save, "clicked", G_CALLBACK(frame_close), f);
+    g_signal_connect(delete_button(f, "Excluir lançamento"), "clicked", G_CALLBACK(goal_move_delete), e);
+    frame_present(f, NULL);
+}
+
+/* ================================================================ transferência entre contas */
+
+typedef struct { Frame *f; char *id; GtkWidget *from, *to, *value, *date, *desc; } TrEd;
+static void tr_ed_free(TrEd *e) { g_free(e->id); g_free(e); }
+
+static void tr_save(GtkButton *b, TrEd *e) {
+    (void)b;
+    if (e->f->closing) return;
+    Day d;
+    if (!row_date_get(e->date, &d)) d = DAY_NONE;
+    OpErr err;
+    gboolean ok = ops_save_transfer(APP->state, e->id, account_at(row_combo_get(e->from)), account_at(row_combo_get(e->to)),
+                                    row_text(e->value), d, row_text(e->desc), APP->today, &err);
+    apply(e->f, ok, &err, e->id ? "Transferência atualizada" : "Transferência salva");
+}
+
+static void tr_swap(GtkButton *b, TrEd *e) {
+    (void)b;
+    int a = row_combo_get(e->from), c = row_combo_get(e->to);
+    adw_combo_row_set_selected(ADW_COMBO_ROW(e->from), (guint)c);
+    adw_combo_row_set_selected(ADW_COMBO_ROW(e->to), (guint)a);
+}
+
+static void tr_del(gpointer p) { DelCtx *d = p; ops_delete_tx(APP->state, d->id, FALSE); app_commit(); frame_close(d->f); app_toast("Transferência excluída"); }
+
+static void tr_delete(GtkButton *b, TrEd *e) {
+    (void)b;
+    TransferLegs l;
+    if (!transfer_legs(APP->state, e->id, &l)) return;
+    DelCtx *d = g_new0(DelCtx, 1);
+    d->id = g_strdup(l.out->id);
+    d->f = e->f;
+    dlg_confirm("Excluir transferência", "Os dois lados saem: o valor volta para a conta de origem e sai da conta de destino.",
+                "Excluir", TRUE, tr_del, d, del_ctx_free);
+}
+
+void editor_transfer(const char *transfer_id) {
+    const AppState *s = APP->state;
+    if (s->accounts->len < 2) {
+        dlg_notice("Uma conta só", "Cadastre outra conta em Meu dinheiro para transferir entre elas.");
+        return;
+    }
+    TransferLegs l = {0};
+    gboolean edit = transfer_id && transfer_legs(s, transfer_id, &l);
+    TrEd *e = g_new0(TrEd, 1);
+    e->id = edit ? g_strdup(transfer_id) : NULL;
+    Frame *f = frame_new(edit ? "Editar transferência" : "Transferir entre contas",
+                         "O valor sai de uma conta e entra na outra no mesmo dia. Não conta como receita nem despesa.", "Salvar");
+    e->f = f;
+    g_object_set_data_full(G_OBJECT(f->dialog), "ed", e, (GDestroyNotify)tr_ed_free);
+    int from = 0, to = 1;
+    for (guint i = 0; edit && i < s->accounts->len; i++) {
+        const char *id = ((Account *)s->accounts->pdata[i])->id;
+        if (strcmp(id, l.out->account_id) == 0) from = (int)i;
+        if (strcmp(id, l.into->account_id) == 0) to = (int)i;
+    }
+    GtkWidget *g = group(f->content, NULL);
+    char vb[32];
+    e->value = row_entry("Valor (R$)", edit ? money_input(l.out->value, vb) : "", 20);
+    g_autoptr(GPtrArray) an = account_names();
+    e->from = row_combo("De", (const char *const *)an->pdata, (int)an->len, from);
+    e->to = row_combo("Para", (const char *const *)an->pdata, (int)an->len, to);
+    GtkWidget *swap = gtk_button_new_from_icon_name("fin-swap-horiz-symbolic");
+    gtk_widget_set_valign(swap, GTK_ALIGN_CENTER);
+    gtk_widget_add_css_class(swap, "flat");
+    gtk_widget_set_tooltip_text(swap, "Inverter as contas");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(swap), GTK_ACCESSIBLE_PROPERTY_LABEL, "Inverter as contas", -1);
+    adw_action_row_add_suffix(ADW_ACTION_ROW(e->to), swap);
+    g_signal_connect(swap, "clicked", G_CALLBACK(tr_swap), e);
+    e->date = row_date("Data", edit ? l.out->date : APP->today, FALSE);
+    const char *dtext = edit && strcmp(l.out->desc, TRANSFER_CAT) != 0 ? l.out->desc : "";
+    e->desc = row_entry("Descrição (opcional)", dtext, 200);
+    gadd(g, e->value);
+    gadd(g, e->from);
+    gadd(g, e->to);
+    gadd(g, e->date);
+    gadd(g, e->desc);
+    g_signal_connect(f->save, "clicked", G_CALLBACK(tr_save), e);
+    g_signal_connect(e->value, "entry-activated", G_CALLBACK(tr_save), e);
+    if (edit) g_signal_connect(delete_button(f, "Excluir transferência"), "clicked", G_CALLBACK(tr_delete), e);
+    frame_present(f, e->value);
 }
 
 /* ================================================================ conta */
