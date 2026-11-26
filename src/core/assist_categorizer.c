@@ -202,7 +202,8 @@ static Suggestion *learned(const Categorizer *c, GPtrArray *dist) {
     while (g_hash_table_iter_next(&it, &key, &val)) total_w += GPOINTER_TO_INT(val);
     char pct[24];
     g_autofree char *of = total_w > wd ? g_strdup_printf(" (de %d com essa palavra)", total_w) : g_strdup("");
-    char *why = g_strdup_printf("A palavra “%s” aparece em %d lançamento(s) seus de %s%s. Confiança: %s.", word, wd, cat, of, br_pct(p * 100, pct));
+    g_autofree char *wl = br_plural(wd, "lançamento seu", "lançamentos seus");
+    char *why = g_strdup_printf("A palavra “%s” aparece em %s de %s%s. Confiança: %s.", word, wl, cat, of, br_pct(p * 100, pct));
     return suggestion_new(cat, SOURCE_LEARNED, why, p);
 }
 

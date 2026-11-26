@@ -39,7 +39,7 @@ GtkWidget *w_badge(const char *text, const char *variant);
 /* ---- gráficos simples ---- */
 GtkWidget *w_level(double fraction, const char *variant);
 
-/* ---- ícones (Material Symbols, nome sem "fin-"/"-symbolic") ---- */
+/* ---- ícones (Phosphor Icons, nome sem "fin-"/"-symbolic"; mapa em tools/phosphor-map.txt) ---- */
 GtkWidget *w_icon(const char *name, int px);
 GtkWidget *w_icon_label(const char *icon, const char *text, const char *classes);
 /* ícone dentro de um quadradinho de cantos arredondados, com fundo suave da cor [color]

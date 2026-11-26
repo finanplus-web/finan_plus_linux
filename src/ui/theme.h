@@ -11,9 +11,13 @@ G_BEGIN_DECLS
 typedef struct {
     gboolean dark;
     guint32 bg, surface, border, text, muted, accent, accent2, on_accent, red, green, track, glow_a, glow_b;
+    /* cores próprias por conceito (Android 1.11, REDESIGN-COERENCIA.md): metas em âmbar, cartão em lilás */
+    guint32 goal, card;
 } FinPalette;
 
 void theme_apply(ThemeId t);
+/* efeito vidro (Ajustes › Aparência; vale a partir do próximo theme_apply) */
+void theme_set_glass(gboolean on);
 const FinPalette *theme_palette(void);
 const FinPalette *theme_palette_for(ThemeId t, gboolean system_dark);
 void theme_rgba(guint32 argb, GdkRGBA *out);

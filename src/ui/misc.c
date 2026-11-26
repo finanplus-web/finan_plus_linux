@@ -18,7 +18,8 @@ void show_about(void) {
     adw_about_dialog_set_license_type(a, GTK_LICENSE_GPL_3_0);
     const char *devs[] = {"Juscelino Be (autor e idealizador)", "Desenvolvido com auxílio de inteligência artificial", NULL};
     adw_about_dialog_set_developers(a, devs);
-    adw_about_dialog_add_legal_section(a, "Ícones Material Symbols", "© Google LLC", GTK_LICENSE_APACHE_2_0, NULL);
+    adw_about_dialog_add_legal_section(a, "Phosphor Icons", "© 2020 Phosphor Icons", GTK_LICENSE_MIT_X11, NULL);
+    adw_about_dialog_add_legal_section(a, "OpenSSL (backup criptografado)", "© The OpenSSL Project Authors", GTK_LICENSE_APACHE_2_0, NULL);
     adw_about_dialog_add_legal_section(a, "GTK 4 e libadwaita", "© The GNOME Project", GTK_LICENSE_LGPL_2_1, NULL);
     adw_about_dialog_add_legal_section(a, "libsodium", "© Frank Denis", GTK_LICENSE_CUSTOM,
                                        "Licença ISC: https://opensource.org/license/isc-license-txt");

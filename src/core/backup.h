@@ -14,8 +14,8 @@ G_BEGIN_DECLS
 /* tamanho máximo aceito para um arquivo de backup */
 #define BACKUP_MAX_BYTES (30 * 1024 * 1024)
 
-typedef struct { int txs, goals, accounts, cards, recurring; } Dropped;
-#define dropped_total(d) ((d).txs + (d).goals + (d).accounts + (d).cards + (d).recurring)
+typedef struct { int txs, goals, accounts, cards, recurring, shared; } Dropped;
+#define dropped_total(d) ((d).txs + (d).goals + (d).accounts + (d).cards + (d).recurring + (d).shared)
 
 #define BACKUP_ERROR (backup_error_quark())
 GQuark backup_error_quark(void);
@@ -29,5 +29,7 @@ AppState *backup_parse_ext(const char *text, gssize len, Dropped *dropped, gbool
 /* Serializa no formato do Finan+ web (valores em reais). Com [app_version] != NULL inclui
  * o bloco "_backup" usado nos arquivos exportados. */
 char *backup_to_json(const AppState *s, const char *app_version);
+/* [is_auto]: cópia do backup automático ("auto": true no bloco _backup, como no Android) */
+char *backup_to_json_ext(const AppState *s, const char *app_version, gboolean is_auto);
 
 G_END_DECLS

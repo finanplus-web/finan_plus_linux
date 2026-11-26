@@ -328,7 +328,7 @@ AskAnswer *ask_answer(const char *question, const AppState *s, Day today, MoneyF
     g_autofree char *pend_note = NULL;
     if (pending->len && p->intent != INTENT_BALANCE) {
         g_autofree char *pl = br_plural((int)pending->len, "lançamento", "lançamentos");
-        pend_note = g_strdup_printf(" Há ainda %s pendente(s) em %s.", M(psum), pl);
+        pend_note = g_strdup_printf(" Há ainda %s pendente em %s.", M(psum), pl);
     } else pend_note = g_strdup("");
     g_autofree char *dpl = br_plural((int)done->len, "lançamento", "lançamentos");
     char *text = NULL;
@@ -369,9 +369,10 @@ AskAnswer *ask_answer(const char *question, const AppState *s, Day today, MoneyF
     case INTENT_AVERAGE: {
         Day end = MIN(p->to, today);
         gint64 days = MAX(1, (gint64)end - p->from + 1);
+        g_autofree char *dl = br_plural((int)days, "dia", "dias");
         text = done->len == 0 ? g_strdup_printf("Não encontrei %s realizadas%s.", what, scope->str)
-                              : g_strdup_printf("Média de %s por dia%s (%s em %" G_GINT64_FORMAT " dia(s) até %s).",
-                                                M(sum / days), scope->str, M(sum), days, day_br(end, d));
+                              : g_strdup_printf("Média de %s por dia%s (%s em %s até %s).",
+                                                M(sum / days), scope->str, M(sum), dl, day_br(end, d));
         break;
     }
     case INTENT_BALANCE: {

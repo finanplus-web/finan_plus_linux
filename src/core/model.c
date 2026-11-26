@@ -5,7 +5,8 @@
 #include <string.h>
 
 const int AUTOLOCK_OPTIONS[5] = {0, 1, 5, 15, 30};
-const char *const DEFAULT_EXPENSE[7] = {"Alimentação", "Transporte", "Moradia", "Saúde", "Lazer", "Educação", "Outros"};
+/* "Dívidas" entrou na 1.11 do Android (o antigo "Empréstimo"; ver txform.h) */
+const char *const DEFAULT_EXPENSE[8] = {"Alimentação", "Transporte", "Moradia", "Saúde", "Lazer", "Educação", "Dívidas", "Outros"};
 const char *const DEFAULT_INCOME[4] = {"Salário", "Extra", "Investimentos", "Outros"};
 
 const char *kind_json(Kind k) { return k == KIND_INCOME ? "income" : "expense"; }
@@ -57,6 +58,8 @@ Tx *tx_new(const char *id, Kind kind, Cents value, Day date, const char *desc, c
     t->recurring_id = dup0("");
     t->group_id = dup0("");
     t->scheduled_date = DAY_NONE;
+    t->goal_id = dup0("");
+    t->transfer_id = dup0("");
     return t;
 }
 
@@ -68,6 +71,8 @@ Tx *tx_copy(const Tx *s) {
     t->parcel_n = s->parcel_n;
     t->parcel_total = s->parcel_total;
     t->scheduled_date = s->scheduled_date;
+    tx_set_str(&t->goal_id, s->goal_id);
+    tx_set_str(&t->transfer_id, s->transfer_id);
     return t;
 }
 
@@ -75,6 +80,7 @@ void tx_free(Tx *t) {
     if (!t) return;
     g_free(t->id); g_free(t->desc); g_free(t->category); g_free(t->account_id);
     g_free(t->card_id); g_free(t->card_payment); g_free(t->recurring_id); g_free(t->group_id);
+    g_free(t->goal_id); g_free(t->transfer_id);
     g_free(t);
 }
 
@@ -119,6 +125,56 @@ Limit *limit_new(const char *category, Cents value) {
 }
 void limit_free(Limit *l) { if (!l) return; g_free(l->category); g_free(l); }
 
+SharedPerson *shared_person_new(const char *id, const char *name, Cents share) {
+    SharedPerson *p = g_new0(SharedPerson, 1);
+    p->id = dup0(id); p->name = dup0(name); p->share = share;
+    return p;
+}
+void shared_person_free(SharedPerson *p) { if (!p) return; g_free(p->id); g_free(p->name); g_free(p); }
+
+SharedPayment *shared_payment_new(const char *id, const char *person_id, Cents value, Day date) {
+    SharedPayment *p = g_new0(SharedPayment, 1);
+    p->id = dup0(id); p->person_id = dup0(person_id); p->value = value; p->date = date;
+    return p;
+}
+void shared_payment_free(SharedPayment *p) { if (!p) return; g_free(p->id); g_free(p->person_id); g_free(p); }
+
+SharedExpense *shared_expense_new(const char *id, const char *name, Cents total, Day date, const char *payer_id,
+                                  SplitMode split, const char *note) {
+    SharedExpense *e = g_new0(SharedExpense, 1);
+    e->id = dup0(id); e->name = dup0(name); e->total = total; e->date = date; e->payer_id = dup0(payer_id);
+    e->split = split; e->note = dup0(note); e->receipt = dup0(""); e->receipt_type = dup0("");
+    e->people = g_ptr_array_new_with_free_func((GDestroyNotify)shared_person_free);
+    e->payments = g_ptr_array_new_with_free_func((GDestroyNotify)shared_payment_free);
+    return e;
+}
+
+SharedExpense *shared_expense_copy(const SharedExpense *o) {
+    SharedExpense *e = shared_expense_new(o->id, o->name, o->total, o->date, o->payer_id, o->split, o->note);
+    tx_set_str(&e->receipt, o->receipt);
+    tx_set_str(&e->receipt_type, o->receipt_type);
+    for (guint i = 0; i < o->people->len; i++) {
+        SharedPerson *p = o->people->pdata[i];
+        g_ptr_array_add(e->people, shared_person_new(p->id, p->name, p->share));
+    }
+    for (guint i = 0; i < o->payments->len; i++) {
+        SharedPayment *p = o->payments->pdata[i];
+        g_ptr_array_add(e->payments, shared_payment_new(p->id, p->person_id, p->value, p->date));
+    }
+    return e;
+}
+
+void shared_expense_free(SharedExpense *e) {
+    if (!e) return;
+    g_free(e->id); g_free(e->name); g_free(e->payer_id); g_free(e->note); g_free(e->receipt); g_free(e->receipt_type);
+    g_ptr_array_unref(e->people);
+    g_ptr_array_unref(e->payments);
+    g_free(e);
+}
+
+const char *split_json(SplitMode m) { return m == SPLIT_CUSTOM ? "custom" : "equal"; }
+SplitMode split_parse(const char *s) { return s && strcmp(s, "custom") == 0 ? SPLIT_CUSTOM : SPLIT_EQUAL; }
+
 AppState *app_state_new_empty(void) {
     AppState *s = g_new0(AppState, 1);
     s->txs = g_ptr_array_new_with_free_func((GDestroyNotify)tx_free);
@@ -129,6 +185,7 @@ AppState *app_state_new_empty(void) {
     s->cats[KIND_INCOME] = g_ptr_array_new_with_free_func(g_free);
     s->cats[KIND_EXPENSE] = g_ptr_array_new_with_free_func(g_free);
     s->limits = g_ptr_array_new_with_free_func((GDestroyNotify)limit_free);
+    s->shared = g_ptr_array_new_with_free_func((GDestroyNotify)shared_expense_free);
     s->theme = THEME_AUTO;
     return s;
 }
@@ -167,6 +224,7 @@ AppState *app_state_copy(const AppState *o) {
         Limit *l = o->limits->pdata[i];
         g_ptr_array_add(s->limits, limit_new(l->category, l->value));
     }
+    for (guint i = 0; i < o->shared->len; i++) g_ptr_array_add(s->shared, shared_expense_copy(o->shared->pdata[i]));
     s->privacy = o->privacy;
     s->auto_lock = o->auto_lock;
     s->theme = o->theme;
@@ -183,6 +241,7 @@ void app_state_free(AppState *s) {
     g_ptr_array_unref(s->cats[0]);
     g_ptr_array_unref(s->cats[1]);
     g_ptr_array_unref(s->limits);
+    g_ptr_array_unref(s->shared);
     g_free(s);
 }
 
@@ -199,6 +258,7 @@ Card *app_card(const AppState *s, const char *id) { FIND_BY_ID(s->cards, Card) }
 Tx *app_tx(const AppState *s, const char *id) { FIND_BY_ID(s->txs, Tx) }
 Goal *app_goal(const AppState *s, const char *id) { FIND_BY_ID(s->goals, Goal) }
 Recurring *app_recurring(const AppState *s, const char *id) { FIND_BY_ID(s->recurring, Recurring) }
+SharedExpense *app_shared(const AppState *s, const char *id) { FIND_BY_ID(s->shared, SharedExpense) }
 
 gboolean app_limit(const AppState *s, const char *cat, Cents *out) {
     for (guint i = 0; i < s->limits->len; i++) {
@@ -255,7 +315,7 @@ gboolean str_same_ci(const char *a, const char *b) {
 /* ------------------------------------------------------------------ limites */
 
 AppCounts app_counts(const AppState *s) {
-    AppCounts c = {s->txs->len, s->accounts->len, s->cards->len, s->recurring->len, s->goals->len, {s->cats[0]->len, s->cats[1]->len}};
+    AppCounts c = {s->txs->len, s->accounts->len, s->cards->len, s->recurring->len, s->goals->len, {s->cats[0]->len, s->cats[1]->len}, s->shared->len};
     return c;
 }
 
@@ -266,6 +326,7 @@ const char *app_growth_error(AppCounts a, AppCounts b) {
     if (GREW(cards, LIMIT_CARDS)) return "Limite de 100 cartões atingido.";
     if (GREW(recurring, LIMIT_RECURRING)) return "Limite de 1.000 recorrências atingido.";
     if (GREW(goals, LIMIT_GOALS)) return "Limite de 1.000 metas atingido.";
+    if (GREW(shared, LIMIT_SHARED)) return "Limite de 1.000 despesas compartilhadas atingido.";
     if (GREW(cats[0], LIMIT_CATEGORIES) || GREW(cats[1], LIMIT_CATEGORIES)) return "Limite de 500 categorias atingido.";
 #undef GREW
     return NULL;

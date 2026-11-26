@@ -9,6 +9,9 @@ G_BEGIN_DECLS
 
 /* Relatório em PDF (A4) do período. FALSE + error se falhar. */
 gboolean pdf_report_render(const AppState *s, const char *path, Day from, Day to, gboolean include_txs, Day today, GError **error);
+/* [accumulate]: opção "Acumular saldo entre os meses" (saldo anterior, saldo acumulado e coluna Acumulado) */
+gboolean pdf_report_render_ext(const AppState *s, const char *path, Day from, Day to, gboolean include_txs, Day today,
+                               gboolean accumulate, GError **error);
 
 /* gráfico de rosca (tela e PDF usam as mesmas cores) */
 void chart_donut(cairo_t *cr, double cx, double cy, double diameter, double thickness, const Cents *values, int n, Cents total);

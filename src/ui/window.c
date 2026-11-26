@@ -10,6 +10,9 @@
  * - bloqueio por PIN, avisos de vencimento e virada automática do dia.
  */
 #include "app.h"
+#include "core/autobackup.h"
+#include "core/txform.h"
+#include "core/totals.h"
 #include "pages.h"
 #include "theme.h"
 #include "widgets.h"
@@ -153,7 +156,8 @@ static void refresh_sidebar(void) {
     if (!W.sidebar_total) return;
     w_clear(W.sidebar_total);
     Cents bal = current_balance(APP->state);
-    Cents fut = future_balance(APP->state, ym_last(day_ym(APP->today)), APP->today);
+    /* o mesmo previsto do Início e do Resumo (glossário único, Android 1.11) */
+    Cents fut = totals_month(APP->state, day_ym(APP->today), APP->today).closing;
     w_add(W.sidebar_total, w_eyebrow("Saldo atual"));
     w_add(W.sidebar_total, w_money(bal, bal < 0 ? "fin-money-mid fin-red" : "fin-money-mid"));
     GtkWidget *l = w_label("Previsto no fim do mês", "fin-muted caption");
@@ -240,6 +244,8 @@ static void act(GSimpleAction *a, GVariant *p, gpointer u) {
     if (!strcmp(n, "new-expense")) new_expense();
     else if (!strcmp(n, "new-income")) new_income();
     else if (!strcmp(n, "new-goal")) editor_goal(NULL);
+    else if (!strcmp(n, "new-transfer")) editor_transfer(NULL);
+    else if (!strcmp(n, "new-shared")) editor_shared(NULL);
     else if (!strcmp(n, "page-home")) app_show_page(PAGE_HOME);
     else if (!strcmp(n, "page-moves")) app_show_page(PAGE_MOVES);
     else if (!strcmp(n, "page-money")) app_show_page(PAGE_MONEY);
@@ -262,6 +268,7 @@ static void act(GSimpleAction *a, GVariant *p, gpointer u) {
 static void install_actions(GtkApplication *app) {
     static const struct { const char *name; const char *accels[3]; } A[] = {
         {"new-expense", {"<Control>n", NULL}}, {"new-income", {"<Control><Shift>n", NULL}}, {"new-goal", {"<Control>m", NULL}},
+        {"new-transfer", {"<Control>t", NULL}}, {"new-shared", {"<Control><Shift>d", NULL}},
         {"page-home", {"<Control>1", NULL}}, {"page-moves", {"<Control>2", NULL}}, {"page-money", {"<Control>3", NULL}},
         {"page-reports", {"<Control>4", NULL}}, {"page-assist", {"<Control>5", NULL}}, {"page-settings", {"<Control>6", "<Control>comma", NULL}},
         {"search", {"<Control>f", NULL}}, {"ask", {"<Control>k", NULL}}, {"privacy", {"<Control>h", NULL}},
@@ -310,7 +317,87 @@ static gboolean tick(gpointer u) {
     /* bloqueio automático: janela sem foco (ou minimizada) pelo tempo escolhido */
     if (should_auto_lock()) app_lock();
     notify_check(FALSE);
+    if (!APP->problem) app_auto_backup(FALSE);
     return G_SOURCE_CONTINUE;
+}
+
+/* ---------------------------------------------------------------- backup automático (BACKUP-AUTOMATICO.md) */
+
+typedef struct { AppState *state; char *dir; char *password; int keep; Day today; gboolean force; } AutoJob;
+static void auto_job_free(AutoJob *j) {
+    app_state_free(j->state);
+    g_free(j->dir);
+    if (j->password) { memset(j->password, 0, strlen(j->password)); g_free(j->password); }
+    g_free(j);
+}
+
+static void auto_backup_thread(GTask *task, gpointer src, gpointer data, GCancellable *c) {
+    (void)src; (void)c;
+    AutoJob *j = data;
+    GError *e = NULL;
+    char *name = autobackup_write(j->state, j->dir, j->password, j->keep, j->today, APP_VERSION, &e);
+    if (name) g_task_return_pointer(task, name, g_free);
+    else g_task_return_error(task, e);
+}
+
+static gboolean auto_running = FALSE;
+
+static void auto_backup_done(GObject *src, GAsyncResult *res, gpointer u) {
+    (void)src; (void)u;
+    auto_running = FALSE;
+    AutoJob *j = g_task_get_task_data(G_TASK(res));
+    gboolean force = j->force;
+    g_autoptr(GError) e = NULL;
+    g_autofree char *name = g_task_propagate_pointer(G_TASK(res), &e);
+    Prefs *p = APP->prefs;
+    if (name) {
+        p->auto_backup_last = g_get_real_time();
+        g_free(p->auto_backup_file); p->auto_backup_file = g_strdup(name);
+        g_free(p->auto_backup_error); p->auto_backup_error = g_strdup("");
+        if (force) app_toast("Backup automático feito: %s", name);
+    } else {
+        g_free(p->auto_backup_error); p->auto_backup_error = g_strdup(e ? e->message : "Falha desconhecida.");
+        /* tenta de novo daqui a uma hora (o erro fica em Ajustes › Dados) */
+        p->auto_backup_last = g_get_real_time() - (gint64)23 * 3600 * G_USEC_PER_SEC;
+        if (force) dlg_notice("Backup automático não foi feito", p->auto_backup_error);
+    }
+    prefs_save(p, NULL);
+    app_refresh_page(PAGE_SETTINGS);
+}
+
+/* Uma cópia por dia enquanto o app está aberto (e logo ao abrir). [force]: "Fazer agora". Nunca copia quando os
+ * dados não puderam ser lidos (a tela de problema), para não substituir as cópias boas. */
+void app_auto_backup(gboolean force) {
+    Prefs *p = APP->prefs;
+    if (APP->problem || auto_running || !p->auto_backup_dir || !*p->auto_backup_dir) return;
+    if (!force && p->auto_backup_last > 0) {
+        g_autoptr(GDateTime) last = g_date_time_new_from_unix_local(p->auto_backup_last / G_USEC_PER_SEC);
+        Day ld = day_from_ymd(g_date_time_get_year(last), g_date_time_get_month(last), g_date_time_get_day_of_month(last));
+        gint64 age = g_get_real_time() - p->auto_backup_last;
+        /* uma por dia; depois de um erro, de novo só depois de uma hora */
+        if (ld == APP->today || age < (gint64)3600 * G_USEC_PER_SEC) return;
+    }
+    char *pw = store_auto_backup_password(APP->store);
+    if (!pw) {
+        g_free(p->auto_backup_error);
+        p->auto_backup_error = g_strdup("A senha do backup não pôde ser lida neste computador. Defina a senha de novo.");
+        p->auto_backup_last = g_get_real_time() - (gint64)23 * 3600 * G_USEC_PER_SEC;
+        prefs_save(p, NULL);
+        if (force) dlg_notice("Backup automático não foi feito", p->auto_backup_error);
+        return;
+    }
+    AutoJob *j = g_new0(AutoJob, 1);
+    j->state = app_state_copy(APP->state);
+    j->dir = g_strdup(p->auto_backup_dir);
+    j->password = pw;
+    j->keep = p->auto_backup_keep;
+    j->today = APP->today;
+    j->force = force;
+    auto_running = TRUE;
+    GTask *t = g_task_new(NULL, NULL, auto_backup_done, NULL);
+    g_task_set_task_data(t, j, (GDestroyNotify)auto_job_free);
+    g_task_run_in_thread(t, auto_backup_thread);
+    g_object_unref(t);
 }
 
 static void on_active(GObject *win, GParamSpec *ps, gpointer u) {
@@ -428,6 +515,8 @@ static GtkWidget *build_menu_button(void) {
     g_menu_append(s1, "Nova despesa", "app.new-expense");
     g_menu_append(s1, "Nova receita", "app.new-income");
     g_menu_append(s1, "Nova meta", "app.new-goal");
+    g_menu_append(s1, "Transferir entre contas", "app.new-transfer");
+    g_menu_append(s1, "Despesa compartilhada", "app.new-shared");
     GMenu *s2 = g_menu_new();
     g_menu_append(s2, "Relatório em PDF…", "app.pdf");
     g_menu_append(s2, "Exportar CSV…", "app.csv");
@@ -462,6 +551,18 @@ static GtkWidget *build_content(void) {
     gtk_widget_set_tooltip_text(inc, "Nova receita (Ctrl+Shift+N)");
     adw_header_bar_pack_start(ADW_HEADER_BAR(hb), exp);
     adw_header_bar_pack_start(ADW_HEADER_BAR(hb), inc);
+    /* outros lançamentos (Android 1.8 a 1.13): transferência, despesa compartilhada e meta */
+    GMenu *more = g_menu_new();
+    g_menu_append(more, "Transferir entre contas", "app.new-transfer");
+    g_menu_append(more, "Despesa compartilhada", "app.new-shared");
+    g_menu_append(more, "Nova meta", "app.new-goal");
+    GtkWidget *mb2 = gtk_menu_button_new();
+    gtk_menu_button_set_icon_name(GTK_MENU_BUTTON(mb2), "fin-more-horiz-symbolic");
+    gtk_menu_button_set_menu_model(GTK_MENU_BUTTON(mb2), G_MENU_MODEL(more));
+    gtk_widget_set_tooltip_text(mb2, "Transferir entre contas (Ctrl+T), despesa compartilhada ou meta");
+    gtk_accessible_update_property(GTK_ACCESSIBLE(mb2), GTK_ACCESSIBLE_PROPERTY_LABEL, "Outros lançamentos", -1);
+    g_object_unref(more);
+    adw_header_bar_pack_start(ADW_HEADER_BAR(hb), mb2);
     W.exp_btn = exp;
     W.inc_btn = inc;
 
@@ -549,6 +650,20 @@ static Dictionary *load_dictionary(void) {
     return dictionary_parse(text);
 }
 
+static gboolean start_dialog(gpointer u) {
+    (void)u;
+    const char *d = g_getenv("FINAN_PLUS_START_DIALOG");
+    const char *arg = strchr(d, ':');
+    g_autofree char *kind = arg ? g_strndup(d, arg - d) : g_strdup(d);
+    if (arg) arg++;
+    if (!strcmp(kind, "despesa")) editor_tx(KIND_EXPENSE, NULL);
+    else if (!strcmp(kind, "transferencia")) editor_transfer(NULL);
+    else if (!strcmp(kind, "compartilhada")) { if (arg) shared_open(arg); else editor_shared(NULL); }
+    else if (!strcmp(kind, "meta") && arg) editor_goal(arg);
+    else if (!strcmp(kind, "lancamento") && arg) editor_tx(KIND_EXPENSE, arg);
+    return G_SOURCE_REMOVE;
+}
+
 void app_activate(GtkApplication *gapp) {
     if (APP && APP->window) { gtk_window_present(APP->window); return; }
     APP = g_new0(App, 1);
@@ -591,8 +706,16 @@ void app_activate(GtkApplication *gapp) {
         prefs_save(APP->prefs, NULL);
     }
     if (!problem && generate_recurring(APP->state, APP->today) > 0) app_save(NULL);
+    /* Android 1.11: cartão e limite especial saem das categorias (viram forma de pagamento) e Empréstimo vira
+     * Dívidas. Uma vez por computador, como no Android; os lançamentos antigos guardam o nome e aparecem como "Outros". */
+    if (!problem && !APP->prefs->cats_migrated) {
+        if (txform_migrate(APP->state)) app_save(NULL);
+        APP->prefs->cats_migrated = TRUE;
+        prefs_save(APP->prefs, NULL);
+    }
 
     install_actions(gapp);
+    theme_set_glass(APP->prefs->glass);
     theme_apply(APP->state->theme);
     g_signal_connect(adw_style_manager_get_default(), "notify::dark", G_CALLBACK(on_dark_changed), NULL);
 
@@ -623,6 +746,10 @@ void app_activate(GtkApplication *gapp) {
     if (sv && !strcmp(sv, "calendario")) APP->moves_view = MOVES_CALENDAR;
     app_refresh();
     gtk_window_present(GTK_WINDOW(win));
+    /* FINAN_PLUS_START_DIALOG abre um formulário ao iniciar (só para capturas de tela da documentação):
+     * despesa, transferencia, compartilhada, compartilhada:<id>, meta:<id> ou lancamento:<id> */
+    if (g_getenv("FINAN_PLUS_START_DIALOG") && !problem) g_timeout_add(600, start_dialog, NULL);
     W.timer = g_timeout_add_seconds(20, tick, NULL);
     if (!problem) notify_check(FALSE);
+    if (!problem) app_auto_backup(FALSE);
 }

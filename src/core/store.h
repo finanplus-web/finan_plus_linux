@@ -56,6 +56,11 @@ gboolean store_wipe(Store *st, GError **error);
 char *store_bill_password(Store *st, const char *card_id);
 gboolean store_set_bill_password(Store *st, const char *card_id, const char *password, GError **error);
 
+/* Senha do backup automático (BACKUP-AUTOMATICO.md), guardada como as senhas de fatura (cifrada com a chave dos
+ * dados, só neste computador). g_free; NULL se não houver. [password] NULL ou "" esquece. */
+#define store_auto_backup_password(st) store_bill_password((st), "~backup-automatico")
+#define store_set_auto_backup_password(st, pw, err) store_set_bill_password((st), "~backup-automatico", (pw), (err))
+
 /* Cifra/decifra um bloco com a chave do Store (usado também pelos testes). */
 GBytes *store_seal(Store *st, const char *plain, gsize len);
 char *store_open_sealed(Store *st, const guint8 *data, gsize len, gsize *out_len);

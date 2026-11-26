@@ -23,7 +23,8 @@ char *money_format(Cents c, char *buf) {
         grouped[j++] = reais[i];
     }
     grouped[j] = '\0';
-    g_snprintf(buf, 32, "%sR$ %s,%02u", neg ? "-" : "", grouped, (unsigned)(a % 100));
+    /* sinal de menos tipográfico, com espaço (Android 1.11: "− R$ 0,50") */
+    g_snprintf(buf, 32, "%sR$ %s,%02u", neg ? "− " : "", grouped, (unsigned)(a % 100));
     return buf;
 }
 
@@ -92,6 +93,7 @@ gboolean money_parse(const char *input, Cents *out) {
         if (p[0] == 'R' && p[1] == '$') { p += 2; continue; }
         gunichar ch = g_utf8_get_char_validated(p, -1);
         if (ch == (gunichar)-1 || ch == (gunichar)-2) { g_string_free(b, TRUE); return FALSE; }
+        if (ch == 0x2212) ch = '-'; /* "−" tipográfico, como o app mostra */
         if (!g_unichar_isspace(ch) && ch != 0x00A0 && ch != 0x202F) g_string_append_unichar(b, ch);
         p = g_utf8_next_char(p);
     }

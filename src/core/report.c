@@ -76,7 +76,9 @@ static gint cmp_list(gconstpointer a, gconstpointer b) {
     return strcmp(x->desc, y->desc);
 }
 
-Report *report_build(const AppState *s, Day from, Day to, Day today) {
+Report *report_build(const AppState *s, Day from, Day to, Day today) { return report_build_ext(s, from, to, today, FALSE); }
+
+Report *report_build_ext(const AppState *s, Day from, Day to, Day today, gboolean accumulate) {
     (void)today;
     if (to < from) return NULL;
     Report *r = g_new0(Report, 1);
@@ -119,7 +121,7 @@ Report *report_build(const AppState *s, Day from, Day to, Day today) {
     r->months = g_array_new(FALSE, FALSE, sizeof(MonthRow));
     Ym m0 = day_ym(from);
     for (Ym m = m0; m <= day_ym(to); m++) {
-        MonthRow mr = {m, 0, 0};
+        MonthRow mr = {m, 0, 0, accumulate ? balance_on(s, MIN(to, ym_last(m))) : 0};
         g_array_append_val(r->months, mr);
     }
     for (guint i = 0; i < inc->len; i++) g_array_index(r->months, MonthRow, day_ym(((Tx *)inc->pdata[i])->date) - m0).income += ((Tx *)inc->pdata[i])->value;
@@ -137,6 +139,8 @@ Report *report_build(const AppState *s, Day from, Day to, Day today) {
         AccountRow ar = {g_strdup(a->name), account_balance(s, a)};
         g_array_append_val(r->accounts, ar);
     }
+    r->accumulate = accumulate;
+    if (accumulate) { r->carried = balance_on(s, from - 1); r->accumulated = balance_on(s, to); }
     r->goals = g_array_new(FALSE, FALSE, sizeof(GoalRow));
     for (guint i = 0; i < s->goals->len; i++) {
         Goal *g = s->goals->pdata[i];

@@ -40,6 +40,14 @@ Pending period_pending(GPtrArray *txs);
  * fora (contam pela fatura); pagamento de fatura conta como saída. Mesma regra do calendário. */
 Cents period_cash_net(GPtrArray *txs);
 
+/* Total de um dia na lista de Lançamentos e no calendário (Period.dayTotal do Android 1.9).
+ * net = receitas − despesas das contas (realizadas ou pendentes), sem compras no cartão (contam na fatura)
+ * e sem reservas para meta nem transferências; goals = guardado em metas − retirado das metas nesse dia;
+ * has_flow = o dia tem alguma receita ou despesa que entra em net (sem isso, o total do dia não aparece).
+ * Só apresentação: os saldos continuam tirando a reserva da conta, como sempre. */
+typedef struct { Cents net; Cents goals; gboolean has_flow; } DayTotal;
+DayTotal period_day_total(GPtrArray *txs);
+
 /* ================================================================ comparação dos Relatórios */
 
 typedef struct {
@@ -60,7 +68,8 @@ char *period_compare_text(Cents cur, Cents prev, const Compare *c);
 
 /* ================================================================ calendário */
 
-typedef enum { MARK_INCOME = 1 << 0, MARK_EXPENSE = 1 << 1, MARK_CARD = 1 << 2 } DayMark;
+/* MARK_GOAL (Android 1.7): reserva para meta (o dinheiro sai ou volta da conta, mas não é receita nem despesa) */
+typedef enum { MARK_INCOME = 1 << 0, MARK_EXPENSE = 1 << 1, MARK_CARD = 1 << 2, MARK_GOAL = 1 << 3 } DayMark;
 
 /* Fatura em aberto de um cartão, mostrada no dia do vencimento. Os textos apontam para o estado. */
 typedef struct {
@@ -84,8 +93,14 @@ typedef struct {
     int marks;          /* DayMark */
     /* conta pendente com data passada ou fatura vencida em aberto */
     gboolean overdue;
+    /* guardado em metas − retirado das metas no dia (já incluído em income/expense, que alimentam os totais do mês) */
+    Cents goals;
+    /* o dia tem receita, despesa, pagamento ou fatura fora as reservas para meta */
+    gboolean has_flow;
 } CalDay;
 #define cal_day_net(d) ((d)->income - (d)->expense)
+/* total do dia mostrado no quadradinho e no resumo do dia: o net sem as reservas para meta (como na lista) */
+#define cal_day_flow_net(d) (cal_day_net(d) + (d)->goals)
 #define cal_day_count(d) ((int)(d)->txs->len + (int)(d)->invoices->len)
 
 /* Mês montado: só os dias que têm algo (os outros ficam NULL). Os Tx* apontam para o estado:

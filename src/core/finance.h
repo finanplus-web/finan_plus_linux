@@ -41,6 +41,10 @@ typedef struct {
 } GoalPlan;
 
 typedef struct { Cents income; Cents expense; } Flow;
+/* reservas para metas no período: quanto saiu das contas para metas e quanto voltou delas */
+typedef struct { Cents saved; Cents withdrawn; } GoalMoves;
+#define goal_moves_net(g) ((g).saved - (g).withdrawn)
+GoalMoves goal_moves(GPtrArray *txs);
 #define flow_balance(f) ((f).income - (f).expense)
 
 typedef enum { REMINDER_BILL_OVERDUE, REMINDER_BILL_DUE, REMINDER_INCOME_DUE, REMINDER_INVOICE_DUE } ReminderType;
@@ -71,6 +75,12 @@ Cents future_balance(const AppState *s, Day until, Day today);
 Cents balance_on(const AppState *s, Day d);
 /* balance_on de cada dia entre [from] e [to] (inclusive) em [out], numa passada só */
 void balance_series(const AppState *s, Day from, Day to, Cents *out);
+
+/* Saldo previsto ao fim do dia [until], acumulado desde o saldo inicial (Finance.forecastAt do Android):
+ * balance_on + o que está pendente fora do cartão até lá − faturas em aberto que vencem até lá + recorrências
+ * previstas (só se [with_projection]). Para datas de hoje em diante coincide com future_balance. É o previsto
+ * da opção "Acumular saldo entre os meses". */
+Cents forecast_from_start(const AppState *s, Day until, Day today, gboolean with_projection);
 
 /* ---- recorrências previstas (RECORRENCIAS.md) ----
  * Próximas ocorrências de cada recorrência ativa com data entre from e to, só em meses depois do mês de

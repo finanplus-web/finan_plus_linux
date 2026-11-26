@@ -102,7 +102,8 @@ MonthReport *insights_report(const AppState *s, Day today, MoneyFmt money) {
             if (!t->paid && !tx_is_card(t) && t->date < today) g_ptr_array_add(late, t);
             if (t->paid && day_ym(t->date) == prev) pe += t->value;
         }
-        if (t->kind == KIND_INCOME) {
+        /* transferência entre contas não é receita (Android 1.13) */
+        if (t->kind == KIND_INCOME && !tx_is_transfer(t)) {
             if (t->paid && in_month_until(t, ym, day)) g_ptr_array_add(cur_inc, t);
             if (!t->paid && day_ym(t->date) == ym) g_ptr_array_add(to_receive, t);
             if (t->paid && day_ym(t->date) == prev) pi += t->value;
@@ -412,7 +413,7 @@ static void over_income(const AppState *s, Day today, MoneyFmt money, GPtrArray 
     g_autoptr(GPtrArray) exp = g_ptr_array_new();
     for (guint i = 0; i < s->txs->len; i++) {
         Tx *t = s->txs->pdata[i];
-        if (t->kind == KIND_INCOME && day_ym(t->date) == ym) income += t->value; /* inclui receitas previstas */
+        if (t->kind == KIND_INCOME && !tx_is_transfer(t) && day_ym(t->date) == ym) income += t->value; /* inclui receitas previstas */
         if (is_expense(t)) g_ptr_array_add(exp, t);
     }
     if (income <= 0) return;

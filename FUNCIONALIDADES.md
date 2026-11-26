@@ -2,6 +2,8 @@
 
 Lista completa do que o app faz e de onde fica cada coisa, comparada com o app Android. O código C do núcleo é uma tradução direta do Kotlin e passa nos mesmos casos de teste (núcleo, assistente, relatório, período, calendário e simulador). Desde a 1.2.0 tem as mesmas funções do app Android 1.4.0 e do Finan+ web 1.3.0, menos as que só fazem sentido no celular (veja o fim desta página).
 
+> **Próxima versão (1.5.0):** reserva para metas, transferência entre contas, despesas compartilhadas, dívidas, saldo acumulado entre os meses, backup automático criptografado, efeito vidro e ícones Phosphor, como no app Android 1.7 a 1.13. Veja [PARIDADE-ANDROID.md](PARIDADE-ANDROID.md).
+
 ## Janela para computador e notebook
 
 | O quê | Como funciona |

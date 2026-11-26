@@ -174,6 +174,32 @@ Cents future_balance(const AppState *s, Day until, Day today) {
     return c;
 }
 
+Cents forecast_from_start(const AppState *s, Day until, Day today, gboolean with_projection) {
+    Cents c = balance_on(s, until);
+    for (guint i = 0; i < s->txs->len; i++) {
+        Tx *t = s->txs->pdata[i];
+        if (tx_is_card(t) || t->paid || t->date > until) continue;
+        c += t->kind == KIND_INCOME ? t->value : -t->value;
+    }
+    for (guint i = 0; i < s->cards->len; i++) {
+        CardStatus st;
+        card_status(s, s->cards->pdata[i], today, &st);
+        for (guint j = 0; j < st.invoices->len; j++) {
+            Invoice *v = &g_array_index(st.invoices, Invoice, j);
+            if (invoice_open(v) > 0 && v->due <= until) c -= invoice_open(v);
+        }
+        card_status_clear(&st);
+    }
+    if (with_projection) {
+        g_autoptr(GPtrArray) prev = projection_between(s, today, until, today);
+        for (guint i = 0; i < prev->len; i++) {
+            const Tx *t = prev->pdata[i];
+            if (!tx_is_card(t)) c += t->kind == KIND_INCOME ? t->value : -t->value;
+        }
+    }
+    return c;
+}
+
 /* ------------------------------------------------------------------ recorrências */
 
 int generate_recurring(AppState *s, Day today) {
@@ -254,6 +280,16 @@ Flow flow_of(GPtrArray *txs) {
         if (t->kind == KIND_INCOME) f.income += t->value; else f.expense += t->value;
     }
     return f;
+}
+
+GoalMoves goal_moves(GPtrArray *txs) {
+    GoalMoves g = {0, 0};
+    for (guint i = 0; i < txs->len; i++) {
+        Tx *t = txs->pdata[i];
+        if (!tx_is_goal(t) || !t->paid) continue;
+        if (t->kind == KIND_EXPENSE) g.saved += t->value; else g.withdrawn += t->value;
+    }
+    return g;
 }
 
 Flow month_flow(const AppState *s, Ym ym) {
@@ -424,7 +460,9 @@ char *csv_build(const AppState *s) {
         Account *a = tx_is_card(t) ? NULL : app_account(s, t->account_id);
         Card *c = app_card(s, tx_is_card(t) ? t->card_id : t->card_payment);
         const char *cols[8] = {
-            day_iso(t->date, d), t->kind == KIND_INCOME ? "receita" : "despesa", t->category, t->desc,
+            day_iso(t->date, d), tx_is_goal(t) ? (t->kind == KIND_EXPENSE ? "reserva para meta" : "retirada de meta")
+                : tx_is_transfer(t) ? (t->kind == KIND_EXPENSE ? "transferência enviada" : "transferência recebida")
+                : t->kind == KIND_INCOME ? "receita" : "despesa", t->category, t->desc,
             money_input(t->value, v), t->paid ? "realizado" : "pendente", a ? a->name : "", c ? c->name : "",
         };
         g_string_append(out, "\r\n");

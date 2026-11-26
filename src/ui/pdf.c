@@ -5,12 +5,13 @@
  * prévia dos totais e aviso de privacidade. O desenho do PDF está em pdf_render.c.
  */
 #include "pages.h"
+#include "core/assist.h"
 #include "pdf.h"
 #include "widgets.h"
 #include "core/report.h"
 
 gboolean pdf_report_write(const char *path, Day from, Day to, gboolean include_txs, GError **error) {
-    return pdf_report_render(APP->state, path, from, to, include_txs, APP->today, error);
+    return pdf_report_render_ext(APP->state, path, from, to, include_txs, APP->today, APP->prefs->accumulate, error);
 }
 
 /* ---------------------------------------------------------------- diálogo de exportação */
@@ -47,7 +48,8 @@ static void pdf_update(PdfDlg *p) {
     if (!ok) { gtk_label_set_text(GTK_LABEL(p->preview), "Escolha as datas inicial e final (a final igual ou depois da inicial)."); return; }
     Report *r = report_build(APP->state, a, b, APP->today);
     g_autofree char *i = app_money(r->income), *e = app_money(r->expense), *s = app_money(report_balance(r));
-    g_autofree char *t = g_strdup_printf("%u lançamento(s) · receitas %s · despesas %s · saldo %s", r->txs->len, i, e, s);
+    g_autofree char *n = br_plural((int)r->txs->len, "lançamento", "lançamentos");
+    g_autofree char *t = g_strdup_printf("%s · receitas %s · despesas %s · saldo %s", n, i, e, s);
     gtk_label_set_text(GTK_LABEL(p->preview), t);
     report_free(r);
 }

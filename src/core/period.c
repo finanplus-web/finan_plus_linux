@@ -70,6 +70,17 @@ Pending period_pending(GPtrArray *txs) {
     return p;
 }
 
+DayTotal period_day_total(GPtrArray *txs) {
+    DayTotal d = {0, 0, FALSE};
+    for (guint i = 0; i < txs->len; i++) {
+        const Tx *t = txs->pdata[i];
+        if (tx_is_card(t) || tx_is_transfer(t)) continue;
+        if (tx_is_goal(t)) d.goals += t->kind == KIND_EXPENSE ? t->value : -t->value;
+        else { d.has_flow = TRUE; d.net += t->kind == KIND_INCOME ? t->value : -t->value; }
+    }
+    return d;
+}
+
 Cents period_cash_net(GPtrArray *txs) {
     Cents n = 0;
     for (guint i = 0; i < txs->len; i++) {
@@ -178,11 +189,19 @@ CalMonth *cal_build(const AppState *s, Ym ym, Day today) {
         CalDay *c = m->days[k];
         if (!c) continue;
         g_ptr_array_sort(c->txs, cmp_day_tx);
+        c->has_flow = c->invoices->len > 0;
         for (guint i = 0; i < c->txs->len; i++) {
             const Tx *t = c->txs->pdata[i];
             if (tx_is_card(t)) c->marks |= MARK_CARD; /* compra no cartão: só na fatura */
-            else if (t->kind == KIND_INCOME) { c->income += t->value; c->marks |= MARK_INCOME; }
-            else { c->expense += t->value; c->marks |= tx_is_flow(t) ? MARK_EXPENSE : MARK_CARD; }
+            else if (tx_is_transfer(t)) {} /* transferência entre contas: o total não muda (aparece só na lista do dia) */
+            else if (tx_is_goal(t)) {
+                /* reserva para meta: entra em income/expense (os totais do mês), mas fica fora do total do dia */
+                if (t->kind == KIND_INCOME) { c->income += t->value; c->goals -= t->value; }
+                else { c->expense += t->value; c->goals += t->value; }
+                c->marks |= MARK_GOAL;
+            }
+            else if (t->kind == KIND_INCOME) { c->income += t->value; c->has_flow = TRUE; c->marks |= MARK_INCOME; }
+            else { c->expense += t->value; c->has_flow = TRUE; c->marks |= tx_is_card_payment(t) ? MARK_CARD : MARK_EXPENSE; }
             if (!t->paid && !tx_is_card(t) && t->date < today) c->overdue = TRUE;
         }
         for (guint i = 0; i < c->invoices->len; i++) {
@@ -286,13 +305,16 @@ char *cal_describe(Day d, const CalDay *day, Day today, gboolean hide) {
     else {
         if (n == 1) g_string_append(s, ", 1 lançamento");
         else g_string_append_printf(s, ", %d lançamentos", n);
-        if (!hide && (day->income != 0 || day->expense != 0)) {
-            char buf[40];
-            Cents net = cal_day_net(day);
+        char buf[40];
+        if (!hide && day->has_flow) {
+            Cents net = cal_day_flow_net(day);
             if (net > 0) g_string_append_printf(s, ", saldo do dia mais %s", money_format(net, buf));
             else if (net < 0) g_string_append_printf(s, ", saldo do dia menos %s", money_format(-net, buf));
             else g_string_append(s, ", saldo do dia zero");
         }
+        if (!hide && day->goals != 0)
+            g_string_append_printf(s, day->goals > 0 ? ", %s guardados em metas" : ", %s retirados de metas",
+                                   money_format(day->goals > 0 ? day->goals : -day->goals, buf));
         if (day->overdue) g_string_append(s, ", em atraso");
     }
     return g_string_free(s, FALSE);

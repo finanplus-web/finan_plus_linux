@@ -42,9 +42,21 @@ void ops_toggle_paid(AppState *s, const char *id, Day today);
 gboolean ops_can_toggle_paid(const Tx *t);
 Ym ops_resumed_last(Ym last, Day today);
 
+/* Transferência entre contas (TRANSFERENCIAS.md): cria ou edita ([transfer_id]) os dois lados, que saem de
+ * [from_id] e entram em [to_id] com o mesmo valor e data, sempre realizados (data futura não vale). */
+gboolean ops_save_transfer(AppState *s, const char *transfer_id, const char *from_id, const char *to_id, const char *value,
+                           Day date, const char *desc, Day today, OpErr *err);
+
+/* [move]: quanto guardar (positivo) ou retirar (negativo) agora. Com [from_account], o valor sai da conta
+ * [account_id] (ou volta para ela) num lançamento de reserva para meta ("Meta › nome" / "Retirada da meta › nome"),
+ * que não conta como despesa nem receita (METAS.md). Sem [from_account], só o valor guardado muda. */
 gboolean ops_save_goal(AppState *s, const char *id, const char *name, const char *target, const char *move,
-                       Day deadline, const char *monthly, OpErr *err);
-void ops_delete_goal(AppState *s, const char *id);
+                       Day deadline, const char *monthly, gboolean from_account, const char *account_id, Day today,
+                       OpErr *err);
+/* quanto desta meta saiu das contas pelo Finan+ e ainda não voltou (o que volta ao excluir a meta) */
+Cents ops_goal_from_accounts(const AppState *s, const char *id);
+/* exclui a meta; o que saiu das contas para ela volta à conta do último depósito ("Meta excluída › nome") */
+void ops_delete_goal(AppState *s, const char *id, Day today);
 
 gboolean ops_save_account(AppState *s, const char *id, const char *name, const char *initial, OpErr *err);
 /* com check_only, só verifica se pode excluir */

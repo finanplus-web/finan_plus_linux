@@ -8,24 +8,55 @@
 #include "theme.h"
 #include <adwaita.h>
 
-/* bg, surface(ARGB), border(ARGB), text, muted, accent, accent2, on_accent, red, green, track, glowA, glowB */
+/* bg, surface(ARGB), border(ARGB), text, muted, accent, accent2, on_accent, red, green, track, glowA, glowB, goal, card */
 static const FinPalette PALETTES[] = {
     /* Claro */
-    {FALSE, 0xFFEEF4FF, 0xB8FFFFFF, 0xB8FFFFFF, 0xFF182238, 0xFF5B6579, 0xFF3A5FC8, 0xFFDFE8FF, 0xFFFFFFFF, 0xFFB03A4F, 0xFF1B7351, 0xFFDFE5EF, 0xFFD9E5FF, 0xFFFFE7ED},
+    {FALSE, 0xFFEEF4FF, 0xB8FFFFFF, 0xB8FFFFFF, 0xFF182238, 0xFF5B6579, 0xFF3A5FC8, 0xFFDFE8FF, 0xFFFFFFFF, 0xFFB03A4F, 0xFF1B7351, 0xFFDFE5EF, 0xFFD9E5FF, 0xFFFFE7ED, 0xFFB4580A, 0xFF7446D0},
     /* Gruvbox (paleta de morhetz, as mesmas cores do Android 1.6): fundo #282828, cartões #32302F, texto creme, azul de destaque */
-    {TRUE, 0xFF282828, 0xFF32302F, 0xFF3C3836, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF3A4442, 0xFF1D2021, 0xFFFF7F7F, 0xFFB8BB26, 0xFF504945, 0xFF282828, 0xFF282828},
+    {TRUE, 0xFF282828, 0xFF32302F, 0xFF3C3836, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF3A4442, 0xFF1D2021, 0xFFFF7F7F, 0xFFB8BB26, 0xFF504945, 0xFF282828, 0xFF282828, 0xFFFE8019, 0xFFD3869B},
     /* OLED Cinza */
-    {TRUE, 0xFF181A1F, 0xFF23262D, 0xFF353941, 0xFFF1F3F6, 0xFFA8ADB7, 0xFF8AA8FF, 0xFF30343D, 0xFF10131A, 0xFFFF8A91, 0xFF63D6A5, 0xFF353941, 0xFF181A1F, 0xFF181A1F},
+    {TRUE, 0xFF181A1F, 0xFF23262D, 0xFF353941, 0xFFF1F3F6, 0xFFA8ADB7, 0xFF8AA8FF, 0xFF30343D, 0xFF10131A, 0xFFFF8A91, 0xFF63D6A5, 0xFF353941, 0xFF181A1F, 0xFF181A1F, 0xFFF5A35C, 0xFFC3A6FF},
     /* Tokyo Night */
-    {TRUE, 0xFF1A1B26, 0xDB24283B, 0x247AA2F7, 0xFFC0CAF5, 0xFF9AA5CE, 0xFF7AA2F7, 0xFF292E42, 0xFF1A1B26, 0xFFF7768E, 0xFF9ECE6A, 0xFF3B4261, 0xFF24283B, 0xFF292E42},
+    {TRUE, 0xFF1A1B26, 0xDB24283B, 0x247AA2F7, 0xFFC0CAF5, 0xFF9AA5CE, 0xFF7AA2F7, 0xFF292E42, 0xFF1A1B26, 0xFFF7768E, 0xFF9ECE6A, 0xFF3B4261, 0xFF24283B, 0xFF292E42, 0xFFFF9E64, 0xFFBB9AF7},
     /* Nord */
-    {TRUE, 0xFF2E3440, 0xDB3B4252, 0x1FD8DEE9, 0xFFECEFF4, 0xFFB7C0CF, 0xFF88C0D0, 0xFF434C5E, 0xFF2E3440, 0xFFF0A3A9, 0xFFA3BE8C, 0xFF4C566A, 0xFF3B4252, 0xFF354052},
+    {TRUE, 0xFF2E3440, 0xDB3B4252, 0x1FD8DEE9, 0xFFECEFF4, 0xFFB7C0CF, 0xFF88C0D0, 0xFF434C5E, 0xFF2E3440, 0xFFF0A3A9, 0xFFA3BE8C, 0xFF4C566A, 0xFF3B4252, 0xFF354052, 0xFFD08770, 0xFFB48EAD},
     /* Gruvbox OLED: as mesmas cores sobre preto puro; cartões quase pretos com borda fina */
-    {TRUE, 0xFF000000, 0xFF0D0D0C, 0xFF1D2021, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF17201F, 0xFF000000, 0xFFFB4934, 0xFFB8BB26, 0xFF282828, 0xFF000000, 0xFF000000},
+    {TRUE, 0xFF000000, 0xFF0D0D0C, 0xFF1D2021, 0xFFEBDBB2, 0xFFA89984, 0xFF83A598, 0xFF17201F, 0xFF000000, 0xFFFB4934, 0xFFB8BB26, 0xFF282828, 0xFF000000, 0xFF000000, 0xFFFE8019, 0xFFD3869B},
 };
 enum { P_LIGHT, P_GRUVBOX, P_OLED, P_TOKYO, P_NORD, P_GRUVBOX_OLED };
 
 static GtkCssProvider *provider = NULL;
+static gboolean glass = FALSE;
+static char *css(guint32 argb);
+
+void theme_set_glass(gboolean on) { glass = on; }
+
+/* Efeito vidro (Android 1.8): cartões translúcidos, com uma borda clara em cima, sobre brilhos suaves nas cores do
+ * tema. Nos temas escuros os brilhos e a translucidez são menores (texto legível); no OLED quase apagados. */
+static char *build_glass(const FinPalette *p) {
+    if (!glass) return g_strdup("");
+    gboolean oled = (p->bg & 0x00FFFFFF) == 0;
+    double glow = oled ? 0.06 : p->dark ? 0.16 : 0.55;
+    double card = oled ? 0.86 : p->dark ? 0.72 : 0.52;
+    double edge = p->dark ? 0.10 : 0.75;
+    char g1[G_ASCII_DTOSTR_BUF_SIZE], g2[G_ASCII_DTOSTR_BUF_SIZE], ca[G_ASCII_DTOSTR_BUF_SIZE], ed[G_ASCII_DTOSTR_BUF_SIZE];
+    g_ascii_formatd(g1, sizeof g1, "%.2f", glow);
+    g_ascii_formatd(g2, sizeof g2, "%.2f", glow * 0.8);
+    g_ascii_formatd(ca, sizeof ca, "%.2f", card);
+    g_ascii_formatd(ed, sizeof ed, "%.2f", edge);
+    g_autofree char *bg = css(p->bg), *accent = css(p->accent), *goal = css(p->goal), *ga = css(p->glow_a), *gb = css(p->glow_b),
+                    *surface = css(p->surface | 0xFF000000);
+    return g_strdup_printf(
+        ".fin-content { background-color: %1$s; background-image:"
+        " radial-gradient(circle at 12%% 8%%, alpha(%2$s, %6$s), transparent 34%%),"
+        " radial-gradient(circle at 88%% 22%%, alpha(%3$s, %7$s), transparent 30%%),"
+        " radial-gradient(circle at 70%% 92%%, alpha(%4$s, %6$s), transparent 40%%),"
+        " radial-gradient(circle at 18%% 78%%, alpha(%5$s, %7$s), transparent 36%%); }\n"
+        ".fin-card { background-color: alpha(%8$s, %9$s); border: 1px solid alpha(white, 0.06);"
+        " border-top: 1px solid alpha(white, %10$s); }\n"
+        ".fin-stat, .fin-stat-soft { background-color: alpha(%8$s, %9$s); }\n",
+        bg, accent, goal, ga, gb, g1, g2, surface, ca, ed);
+}
 static const FinPalette *current = &PALETTES[P_LIGHT];
 
 const FinPalette *theme_palette(void) { return current; }
@@ -237,7 +268,9 @@ static char *build_widgets(const FinPalette *p) {
         "button.suggested-action { background-color: %4$s; color: %5$s; background-image: none; border: none; }\n"
         "button.suggested-action:hover { background-color: shade(%4$s, 1.08); }\n"
         "button.suggested-action:active { background-color: shade(%4$s, 0.92); }\n"
-        "button.destructive-action { color: %10$s; }\n"
+        /* texto vermelho sobre fundo vermelho-claro: com o fundo vermelho cheio do libadwaita o rótulo sumia */
+        "button.destructive-action { color: %10$s; background-color: alpha(%10$s, 0.12); background-image: none; border: none; }\n"
+        "button.destructive-action:hover { background-color: alpha(%10$s, 0.18); }\n"
         /* listas arredondadas (boxed-list: ex. "O que há de novo"/"Detalhes" em Sobre, editores): temas do sistema
            como o Blackline pintam o fundo da lista sem cantos arredondados, aparecendo um quadrado atrás do cartão */
         "list.boxed-list { background-color: %7$s; border-radius: 12px; box-shadow: 0 0 0 1px %8$s; border: none; }\n"
@@ -333,6 +366,18 @@ static char *build_extra(const FinPalette *p) {
         ".fin-comfy .fin-row { padding: 14px 16px; }\n"
         ".fin-comfy button.fin-line { padding: 12px 8px; }\n",
         accent, accent2, muted, text, stat, sol, border, track);
+    /* metas em âmbar e cartão em lilás (Android 1.11): mesma cor do valor, do ícone e do selo */
+    g_autofree char *goal = css(p->goal), *card = css(p->card);
+    g_autofree char *goal_soft = css((p->goal & 0x00FFFFFF) | (p->dark ? 0x2E000000u : 0x21000000u));
+    g_autofree char *card_soft = css((p->card & 0x00FFFFFF) | (p->dark ? 0x2E000000u : 0x21000000u));
+    g_string_append_printf(g,
+        ".fin-goal { color: %1$s; }\n.fin-cardc { color: %2$s; }\n"
+        ".fin-ico.goal, .fin-glyph.goal { background-color: %3$s; color: %1$s; }\n"
+        ".fin-ico.card, .fin-glyph.card { background-color: %4$s; color: %2$s; }\n"
+        ".fin-dot.goal { background-color: %1$s; }\n.fin-dot.card { background-color: %2$s; }\n"
+        "levelbar.fin-level.goal block.filled { background-color: %1$s; }\n"
+        ".fin-badge.goal { background-color: %3$s; color: %1$s; }\n",
+        goal, card, goal_soft, card_soft);
     return g_string_free(g, FALSE);
 }
 
@@ -353,7 +398,8 @@ void theme_apply(ThemeId t) {
     g_autofree char *vars = adw_get_major_version() > 1 || adw_get_minor_version() >= 6 ? build_vars(current) : g_strdup("");
     g_autofree char *widgets = build_widgets(current);
     g_autofree char *extra = build_extra(current);
-    g_autofree char *sheet = g_strconcat(base, vars, widgets, extra, NULL);
+    g_autofree char *gl = build_glass(current);
+    g_autofree char *sheet = g_strconcat(base, vars, widgets, extra, gl, NULL);
     gtk_css_provider_load_from_string(provider, sheet);
     if (g_getenv("FINAN_PLUS_DEBUG")) g_printerr("[Finan+] tema %d aplicado (escuro=%d, libadwaita %u.%u)\n", t, current->dark, adw_get_major_version(), adw_get_minor_version());
 }

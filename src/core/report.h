@@ -29,7 +29,8 @@ typedef struct {
 } CategoryRow;
 #define category_over_limit(r) ((r)->has_limit && (r)->monthly_average > (r)->monthly_limit)
 
-typedef struct { Ym ym; Cents income, expense; } MonthRow;
+/* accumulated: saldo das contas ao fim do mês (ou do período), só com a opção de saldo acumulado ligada */
+typedef struct { Ym ym; Cents income, expense; Cents accumulated; } MonthRow;
 typedef struct { char *name; Cents balance; } AccountRow;
 typedef struct { char *name; Cents saved, target; Day deadline; } GoalRow;
 
@@ -49,6 +50,10 @@ typedef struct {
     GPtrArray *txs;                 /* Tx* (do estado) */
     GArray *accounts;               /* AccountRow */
     GArray *goals;                  /* GoalRow */
+    /* Opção "Acumular saldo entre os meses" ligada (Android 1.9): saldo das contas no dia anterior ao período
+     * (saldo inicial + meses anteriores) e ao fim do período (balance_on). Desligada: accumulate = FALSE. */
+    gboolean accumulate;
+    Cents carried, accumulated;
 } Report;
 
 #define report_balance(r) ((r)->income - (r)->expense)
@@ -61,6 +66,8 @@ double goal_row_percent(const GoalRow *g);
 
 /* NULL se to < from. Os ponteiros Tx* apontam para dentro de [s]: use o relatório antes de alterar o estado. */
 Report *report_build(const AppState *s, Day from, Day to, Day today);
+/* [accumulate]: opção "Acumular saldo entre os meses"; preenche carried, accumulated e MonthRow.accumulated */
+Report *report_build_ext(const AppState *s, Day from, Day to, Day today, gboolean accumulate);
 void report_free(Report *r);
 
 /* valor curto para eixos: "R$ 950", "R$ 1,2 mil", "R$ 3,4 mi" (g_free) */
