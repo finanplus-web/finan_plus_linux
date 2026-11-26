@@ -25,6 +25,13 @@ void show_about(void) {
     adw_about_dialog_add_legal_section(a, "libsecret e json-glib", "© The GNOME Project", GTK_LICENSE_LGPL_2_1, NULL);
     adw_about_dialog_set_release_notes_version(a, APP_VERSION);
     adw_about_dialog_set_release_notes(a,
+        "<p>1.4.0: visual novo para telas largas:</p>"
+        "<ul><li>Até três colunas em janelas grandes, usando a tela inteira</li>"
+        "<li>Início com a evolução do saldo no mês, receitas \u00d7 despesas dos últimos 5 meses e onde foi o dinheiro</li>"
+        "<li>Lançamentos com resumo do período, pendentes (Pagar/Receber) e Ler fatura ao lado; dá para soltar o PDF na janela</li>"
+        "<li>Resumo com quatro indicadores e saldo acumulado; Meu dinheiro com o que fica livre depois das faturas</li>"
+        "<li>Ajustes em lista e detalhe com ícones coloridos; temas Gruvbox e Gruvbox OLED e opção de densidade</li>"
+        "<li>AppImage volta a abrir no Debian 13</li></ul>"
         "<p>1.3.0: o mesmo visual e as mesmas regras da versão 1.6.0 do app Android:</p>"
         "<ul><li>Nova seção Meu dinheiro (contas, cartões, limites, metas, simulador e categorias); Relatórios virou Resumo, com o fluxo do dinheiro</li>"
         "<li>Início com o que falta receber e pagar e os próximos 3 vencimentos; Ajustes em grupos</li>"

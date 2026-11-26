@@ -25,6 +25,7 @@
   <requires><display_length compare="ge">360</display_length></requires>
   <supports><control>keyboard</control><control>pointing</control><control>touch</control></supports>
   <releases>
+    <release version="1.4.0" date="2026-11-26"><description><p>Visual novo para telas largas: até três colunas, gráficos de evolução do saldo e de receitas e despesas, Lançamentos com resumo e pendentes ao lado, Meu dinheiro com o que fica livre depois das faturas, Ajustes em lista e detalhe, temas Gruvbox e Gruvbox OLED, opção de densidade e AppImage que volta a abrir no Debian 13.</p></description></release>
     <release version="1.3.0" date="2026-10-17"><description><p>Mesmo visual e regras do app Android 1.6.0: seção Meu dinheiro, Resumo com fluxo do dinheiro, formulário mais simples, data prevista ao confirmar pagamentos (com Desfazer), backup com valores exatos e Ler fatura ou boleto.</p></description></release>
     <release version="1.2.1" date="2026-10-10"><description><p>Recorrências aparecem nos próximos meses como "Previsto" no calendário, na Lista e no saldo previsto, sem serem gravadas.</p></description></release>
     <release version="1.2.0" date="2026-10-10"><description><p>Calendário de lançamentos, simulador "E se…?", Relatórios com comparação justa, Início e Lista mais enxutos, limite de tentativas do PIN gravado e bloqueio automático com "Imediatamente" e "Só ao abrir o app".</p></description></release>
